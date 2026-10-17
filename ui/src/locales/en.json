@@ -38,7 +38,7 @@
   "輸入本機路徑或 \\\\Server\\Share 網路磁碟路徑...": "Enter a local path or a \\\\Server\\Share network path...",
   "前往": "Go",
   "過濾檔案名稱...": "Filter by name...",
-  "僅顯示圖片 ({n})": "Images only ({n})",
+  "關閉": "Close",
   "分析此目錄空間": "Analyze this folder's size",
   "檢查誰鎖住了此處": "Check what is locking this",
   "共 {dirs} 個資料夾、{files} 個檔案（總計 {size}）": "{dirs} folders, {files} files (total {size})",

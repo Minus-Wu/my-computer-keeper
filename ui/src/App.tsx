@@ -42,6 +42,7 @@ import {
   Trash2,
   Unlock,
   Wrench,
+  X,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
@@ -121,7 +122,6 @@ export function App() {
   // 1. 檔案總管狀態
   const [listing, setListing] = useState<DirectoryListing | null>(null);
   const [searchFilter, setSearchFilter] = useState<string>('');
-  const [onlyImagesFilter, setOnlyImagesFilter] = useState<boolean>(false);
   const [selectedEntry, setSelectedEntry] = useState<FileEntry | null>(null);
   const [generalPreview, setGeneralPreview] =
     useState<GeneralItemPreview | null>(null);
@@ -134,6 +134,24 @@ export function App() {
   const [textViewMode, setTextViewMode] = useState<'raw' | 'parsed'>('raw');
   const [confirmNetworkPermanentDelete, setConfirmNetworkPermanentDelete] =
     useState<boolean>(false);
+
+  // 檔案總管內嵌 LockHunter Modal 狀態
+  const [lockModalOpen, setLockModalOpen] = useState<boolean>(false);
+  const [lockModalPath, setLockModalPath] = useState<string>('');
+  const [lockModalLoading, setLockModalLoading] = useState<boolean>(false);
+  const [lockModalReport, setLockModalReport] =
+    useState<LockHunterReport | null>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && lockModalOpen) {
+        setLockModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [lockModalOpen]);
+
 
 
   // 2. TreeSize 狀態
@@ -326,6 +344,45 @@ export function App() {
     [lockTargetPath, currentPath]
   );
 
+  // 檔案總管就地 LockHunter Modal 處理函式
+  const openLockModal = async (targetPath: string) => {
+    setLockModalPath(targetPath);
+    setLockModalOpen(true);
+    setLockModalLoading(true);
+    setLockModalReport(null);
+    try {
+      const report = await keeperApi.inspectLocks(targetPath);
+      setLockModalReport(report);
+    } catch (err) {
+      notifyError(err);
+    } finally {
+      setLockModalLoading(false);
+    }
+  };
+
+  const refreshLockModal = async () => {
+    if (!lockModalPath) return;
+    setLockModalLoading(true);
+    try {
+      const report = await keeperApi.inspectLocks(lockModalPath);
+      setLockModalReport(report);
+    } catch (err) {
+      notifyError(err);
+    } finally {
+      setLockModalLoading(false);
+    }
+  };
+
+  const handleKillLockProcess = async (pid: number) => {
+    try {
+      const msg = await keeperApi.killProcess(pid);
+      notifyStatus(msg);
+      await refreshLockModal();
+    } catch (err) {
+      notifyError(err);
+    }
+  };
+
   // FreeFileSync 比對與執行
   const runSyncCompare = async () => {
     if (!syncLeftPath || !syncRightPath) return;
@@ -451,7 +508,6 @@ export function App() {
   const filteredEntries = useMemo(() => {
     if (!listing) return [];
     return listing.entries.filter((item) => {
-      if (onlyImagesFilter && !item.is_dir && !item.is_image) return false;
       if (
         searchFilter.trim() &&
         !item.name.toLowerCase().includes(searchFilter.trim().toLowerCase())
@@ -460,7 +516,7 @@ export function App() {
       }
       return true;
     });
-  }, [listing, onlyImagesFilter, searchFilter]);
+  }, [listing, searchFilter]);
 
   const activeCapabilities = listing?.capabilities ?? null;
 
@@ -776,18 +832,6 @@ export function App() {
                   />
                 </div>
 
-                <button
-                  onClick={() => setOnlyImagesFilter((v) => !v)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border ${
-                    onlyImagesFilter
-                      ? 'bg-pink-500/20 border-pink-500/50 text-pink-200'
-                      : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
-                  }`}
-                >
-                  <ImageIcon className="w-3.5 h-3.5" />
-                  {t("僅顯示圖片 ({n})", { n: listing?.total_images ?? 0 })}
-                </button>
-
                 {/* 跨模組快速聯動按鈕 */}
                 <button
                   onClick={() => {
@@ -795,7 +839,7 @@ export function App() {
                     setActiveTab('treesize');
                     runTreeSize(currentPath);
                   }}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/30 text-xs"
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/30 text-xs shrink-0"
                 >
                   <PieChart className="w-3.5 h-3.5" />
                   {t("分析此目錄空間")}
@@ -803,11 +847,10 @@ export function App() {
 
                 <button
                   onClick={() => {
-                    setLockTargetPath(selectedEntry?.path ?? currentPath);
-                    setActiveTab('lockhunter');
-                    runLockHunter(selectedEntry?.path ?? currentPath);
+                    openLockModal(selectedEntry?.path ?? currentPath);
                   }}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 text-xs"
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 text-xs shrink-0"
+                  title={t("使用 LockHunter 查詢誰鎖住了此項目")}
                 >
                   <Unlock className="w-3.5 h-3.5" />
                   {t("檢查誰鎖住了此處")}
@@ -834,18 +877,18 @@ export function App() {
                   </div>
 
                   <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-900/40">
-                    <table className="w-full text-left border-collapse text-xs">
+                    <table className="w-full text-left border-collapse text-xs table-fixed">
                       <thead>
                         <tr className="border-b border-slate-800 bg-slate-900/90 text-slate-400">
-                          <th className="py-2.5 px-3 font-medium">{t("名稱")}</th>
-                          <th className="py-2.5 px-3 font-medium w-28">{t("類型")}</th>
-                          <th className="py-2.5 px-3 font-medium w-28 text-right">
+                          <th className="py-2.5 px-3 font-medium min-w-0">{t("名稱")}</th>
+                          <th className="py-2.5 px-3 font-medium w-20 shrink-0">{t("類型")}</th>
+                          <th className="py-2.5 px-3 font-medium w-24 text-right shrink-0">
                             {t("大小")}
                           </th>
-                          <th className="py-2.5 px-3 font-medium w-40">
+                          <th className="py-2.5 px-3 font-medium w-36 shrink-0">
                             {t("修改時間")}
                           </th>
-                          <th className="py-2.5 px-3 font-medium w-44 text-right">
+                          <th className="py-2.5 px-3 font-medium w-40 text-right whitespace-nowrap shrink-0">
                             {t("快速操作")}
                           </th>
                         </tr>
@@ -866,90 +909,93 @@ export function App() {
                                   : 'hover:bg-slate-800/60 text-slate-200'
                               }`}
                             >
-                              <td className="py-2 px-3 flex items-center gap-2.5">
-                                {item.is_dir ? (
-                                  <Folder className="w-4 h-4 text-amber-400 shrink-0" />
-                                ) : item.is_image ? (
-                                  <ImageIcon className="w-4 h-4 text-pink-400 shrink-0" />
-                                ) : item.category === 'code' ? (
-                                  <FileCode className="w-4 h-4 text-cyan-400 shrink-0" />
-                                ) : item.category === 'archive' ||
-                                  ['zip', 'rar', '7z', 'tar', 'gz', 'jar'].includes(
-                                    item.extension
-                                  ) ? (
-                                  <Archive className="w-4 h-4 text-purple-400 shrink-0" />
-                                ) : item.extension === 'pdf' ? (
-                                  <FileText className="w-4 h-4 text-rose-400 shrink-0" />
-                                ) : item.category === 'video' ? (
-                                  <Film className="w-4 h-4 text-teal-400 shrink-0" />
-                                ) : item.category === 'audio' ? (
-                                  <Music className="w-4 h-4 text-emerald-400 shrink-0" />
-                                ) : (
-                                  <FileText className="w-4 h-4 text-slate-400 shrink-0" />
-                                )}
-                                <span className="truncate max-w-md font-medium">
-                                  {item.name}
-                                </span>
-                                {item.is_image && (
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-pink-500/20 text-pink-300 border border-pink-500/30">
-                                    {t("圖片")}
+                              <td className="py-2 px-3 min-w-0 max-w-0 overflow-hidden">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  {item.is_dir ? (
+                                    <Folder className="w-4 h-4 text-amber-400 shrink-0" />
+                                  ) : item.is_image ? (
+                                    <ImageIcon className="w-4 h-4 text-pink-400 shrink-0" />
+                                  ) : item.category === 'code' ? (
+                                    <FileCode className="w-4 h-4 text-cyan-400 shrink-0" />
+                                  ) : item.category === 'archive' ||
+                                    ['zip', 'rar', '7z', 'tar', 'gz', 'jar'].includes(
+                                      item.extension
+                                    ) ? (
+                                    <Archive className="w-4 h-4 text-purple-400 shrink-0" />
+                                  ) : item.extension === 'pdf' ? (
+                                    <FileText className="w-4 h-4 text-rose-400 shrink-0" />
+                                  ) : item.category === 'video' ? (
+                                    <Film className="w-4 h-4 text-teal-400 shrink-0" />
+                                  ) : item.category === 'audio' ? (
+                                    <Music className="w-4 h-4 text-emerald-400 shrink-0" />
+                                  ) : (
+                                    <FileText className="w-4 h-4 text-slate-400 shrink-0" />
+                                  )}
+                                  <span
+                                    className="truncate min-w-0 select-text cursor-text font-medium text-slate-100"
+                                    title={item.name}
+                                  >
+                                    {item.name}
                                   </span>
-                                )}
-                                {item.extension === 'pdf' && (
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                                    PDF
-                                  </span>
-                                )}
-                                {(item.extension === 'zip' ||
-                                  item.extension === 'jar') && (
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                                    {t("ZIP 壓縮")}
-                                  </span>
-                                )}
+                                  {item.is_image && (
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-pink-500/20 text-pink-300 border border-pink-500/30 shrink-0">
+                                      {t("圖片")}
+                                    </span>
+                                  )}
+                                  {item.extension === 'pdf' && (
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 shrink-0">
+                                      PDF
+                                    </span>
+                                  )}
+                                  {(item.extension === 'zip' ||
+                                    item.extension === 'jar') && (
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 shrink-0">
+                                      {t("ZIP 壓縮")}
+                                    </span>
+                                  )}
+                                </div>
                               </td>
-                              <td className="py-2 px-3 text-slate-400">
+                              <td className="py-2 px-3 text-slate-400 truncate whitespace-nowrap">
                                 {item.is_dir
                                   ? t("資料夾")
                                   : item.extension.toUpperCase() || t("檔案")}
                               </td>
-                              <td className="py-2 px-3 text-right font-mono text-slate-300">
+                              <td className="py-2 px-3 text-right font-mono text-slate-300 whitespace-nowrap">
                                 {item.is_dir
                                   ? '-'
                                   : formatBytes(item.size_bytes)}
                               </td>
-                              <td className="py-2 px-3 text-slate-400">
+                              <td className="py-2 px-3 text-slate-400 whitespace-nowrap truncate">
                                 {formatTimestamp(item.modified_unix, locale)}
                               </td>
                               <td
-                                className="py-2 px-3 text-right space-x-1"
+                                className="py-2 px-3 text-right whitespace-nowrap shrink-0"
                                 onClick={(e) => e.stopPropagation()}
                               >
-                                {item.is_dir && (
+                                <div className="inline-flex items-center justify-end gap-1.5 whitespace-nowrap">
+                                  {item.is_dir && (
+                                    <button
+                                      onClick={() => loadDirectory(item.path)}
+                                      className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 shrink-0"
+                                    >
+                                      {t("開啟")}
+                                    </button>
+                                  )}
                                   <button
-                                    onClick={() => loadDirectory(item.path)}
-                                    className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200"
+                                    onClick={() => openLockModal(item.path)}
+                                    className="px-2 py-1 rounded bg-amber-500/15 hover:bg-amber-500/30 text-amber-300 shrink-0"
+                                    title={t("使用 LockHunter 查詢誰鎖住了此項目")}
                                   >
-                                    {t("開啟")}
+                                    {t("解鎖")}
                                   </button>
-                                )}
-                                <button
-                                  onClick={() => {
-                                    setLockTargetPath(item.path);
-                                    setActiveTab('lockhunter');
-                                    runLockHunter(item.path);
-                                  }}
-                                  className="px-2 py-1 rounded bg-amber-500/15 hover:bg-amber-500/30 text-amber-300"
-                                  title={t("使用 LockHunter 查詢誰鎖住了此項目")}
-                                >
-                                  {t("解鎖")}
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteEntry(item)}
-                                  className="px-2 py-1 rounded bg-rose-500/15 hover:bg-rose-500/30 text-rose-300"
-                                  title={t("刪除項目")}
-                                >
-                                  {t("刪除")}
-                                </button>
+                                  <button
+                                    onClick={() => handleDeleteEntry(item)}
+                                    className="px-2 py-1 rounded bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 shrink-0"
+                                    title={t("刪除項目")}
+                                  >
+                                    {t("刪除")}
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           );
@@ -1262,11 +1308,7 @@ export function App() {
                             </button>
                             <button
                               onClick={() => {
-                                setLockTargetPath(
-                                  generalPreview.dir_preview!.path
-                                );
-                                setActiveTab('lockhunter');
-                                runLockHunter(generalPreview.dir_preview!.path);
+                                openLockModal(generalPreview.dir_preview!.path);
                               }}
                               className="py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 text-xs flex items-center justify-center gap-1"
                             >
@@ -2760,6 +2802,213 @@ export function App() {
           )}
         </main>
       </div>
+
+      {/* 檔案總管就地 LockHunter 佔用解鎖 Modal */}
+      {lockModalOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setLockModalOpen(false)}
+        >
+          <div
+            className="w-full max-w-2xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal 標題列 */}
+            <div className="p-4 border-b border-slate-800 flex items-center justify-between gap-3 bg-slate-900/90 shrink-0">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                  <Unlock className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="font-semibold text-sm text-white flex items-center gap-2">
+                    <span>{t("LockHunter 解鎖")}</span>
+                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-normal">
+                      Modal
+                    </span>
+                  </h3>
+                  <div
+                    className="text-[11px] text-slate-400 font-mono truncate select-text cursor-text"
+                    title={lockModalPath}
+                  >
+                    {lockModalPath}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  onClick={refreshLockModal}
+                  disabled={lockModalLoading}
+                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40 transition-colors"
+                  title={t("重新整理")}
+                >
+                  <RefreshCw
+                    className={`w-4 h-4 ${lockModalLoading ? 'animate-spin text-cyan-400' : ''}`}
+                  />
+                </button>
+                <button
+                  onClick={() => setLockModalOpen(false)}
+                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+                  title={t("關閉")}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal 內容區 */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {lockModalLoading && !lockModalReport && (
+                <div className="py-12 flex flex-col items-center justify-center text-slate-400 space-y-3">
+                  <RefreshCw className="w-7 h-7 text-amber-400 animate-spin" />
+                  <span className="text-xs">
+                    {t("Rust 引擎讀取中...")}
+                  </span>
+                </div>
+              )}
+
+              {lockModalReport && (
+                <>
+                  {/* 鎖定狀態卡片 */}
+                  <div
+                    className={`p-3.5 rounded-xl border flex items-center justify-between gap-3 ${
+                      lockModalReport.is_locked
+                        ? 'bg-rose-950/30 border-rose-800/60 text-rose-200'
+                        : 'bg-emerald-950/30 border-emerald-800/60 text-emerald-200'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      {lockModalReport.is_locked ? (
+                        <Lock className="w-5 h-5 text-rose-400 shrink-0" />
+                      ) : (
+                        <Unlock className="w-5 h-5 text-emerald-400 shrink-0" />
+                      )}
+                      <div>
+                        <div className="font-semibold text-xs text-white">
+                          {lockModalReport.is_locked
+                            ? t("發現 {n} 個處理程序正在佔用此路徑", {
+                                n: lockModalReport.locking_processes.length,
+                              })
+                            : t("目前未偵測到任何本機行程鎖定此路徑，可安全操作")}
+                        </div>
+                        <div className="text-[11px] opacity-75 mt-0.5">
+                          {t("已檢查檔案數：{n} 個", {
+                            n: lockModalReport.scanned_files_count,
+                          })}
+                        </div>
+                      </div>
+                    </div>
+
+                    <span
+                      className={`text-[11px] px-2.5 py-1 rounded-full font-medium shrink-0 ${
+                        lockModalReport.scope === 'local_process_only'
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                          : 'bg-emerald-500/20 text-emerald-300'
+                      }`}
+                    >
+                      {lockModalReport.scope === 'local_process_only'
+                        ? t("🌐 網路磁碟：僅限本機行程範圍")
+                        : t("💻 本機完整支援")}
+                    </span>
+                  </div>
+
+                  {/* 診斷小叮嚀 */}
+                  {lockModalReport.advisory_notes.length > 0 && (
+                    <div className="space-y-1 text-xs text-slate-400 bg-slate-950/60 p-3 rounded-xl border border-slate-800/80">
+                      {lockModalReport.advisory_notes.map((n, idx) => (
+                        <div key={idx} className="leading-relaxed">
+                          {tx(n)}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* 佔用行程表格 */}
+                  {lockModalReport.locking_processes.length > 0 ? (
+                    <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-950">
+                      <table className="w-full text-left text-xs">
+                        <thead>
+                          <tr className="bg-slate-900 border-b border-slate-800 text-slate-400">
+                            <th className="py-2 px-3">PID</th>
+                            <th className="py-2 px-3">{t("行程名稱")}</th>
+                            <th className="py-2 px-3">{t("類型")}</th>
+                            <th className="py-2 px-3">{t("鎖定原因")}</th>
+                            <th className="py-2 px-3 text-right">
+                              {t("解鎖動作")}
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/60">
+                          {lockModalReport.locking_processes.map((lp) => (
+                            <tr
+                              key={lp.pid}
+                              className="hover:bg-slate-900/60 transition-colors"
+                            >
+                              <td className="py-2.5 px-3 font-mono text-amber-300">
+                                {lp.pid}
+                              </td>
+                              <td className="py-2.5 px-3 font-semibold text-white">
+                                {lp.process_name}
+                              </td>
+                              <td className="py-2.5 px-3 text-slate-300">
+                                {lp.app_type}
+                              </td>
+                              <td className="py-2.5 px-3 text-slate-300">
+                                {tx(lp.lock_reason)}
+                              </td>
+                              <td className="py-2.5 px-3 text-right">
+                                <button
+                                  onClick={() =>
+                                    handleKillLockProcess(lp.pid)
+                                  }
+                                  className="px-2.5 py-1 rounded-lg bg-rose-500 hover:bg-rose-400 text-white font-semibold text-xs shadow-sm transition-colors"
+                                >
+                                  {t("強制終止並解鎖")}
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : null}
+
+                  {/* 下次開機強制刪除排程 */}
+                  {lockModalReport.capabilities.supports_boot_delete && (
+                    <div className="pt-2 flex justify-end">
+                      <button
+                        onClick={async () => {
+                          try {
+                            const msg = await keeperApi.scheduleBootDelete(
+                              lockModalReport.target_path
+                            );
+                            notifyStatus(msg);
+                          } catch (err) {
+                            notifyError(err);
+                          }
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-200 hover:bg-rose-500/30 text-xs"
+                      >
+                        {t("排程於下次重開機時強制刪除")}
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Modal 底端動作列 */}
+            <div className="p-3 border-t border-slate-800 bg-slate-900/90 flex justify-end shrink-0">
+              <button
+                onClick={() => setLockModalOpen(false)}
+                className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 font-medium transition-colors"
+              >
+                {t("關閉")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
