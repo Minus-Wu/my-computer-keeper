@@ -1,15 +1,22 @@
 # My Computer Keeper (全能電腦維運與檔案管家)
 
-結合 **「檔案總管 (含圖片檢視) + 工作管理員 (含 Port 獵人) + TreeSize + LockHunter + FreeFileSync + 電腦本體維運中心」** 的現代化桌面應用程式。以 **Rust (`keeper-core`)** 為系統核心引擎，搭配 **Tauri v2 / React + TypeScript + TailwindCSS** 桌面介面（方案 A），並內建 **網路磁碟機 (Network Drive / SMB / UNC) 智慧識別與有限功能降級保護機制**。
+結合 **「檔案總管 + 工作管理員 (含 Port 獵人) + TreeSize + LockHunter + FreeFileSync + 電腦本體維運中心」** 的現代化桌面應用程式。以 **Rust (`keeper-core`)** 為系統核心引擎，搭配 **Tauri v2 / React + TypeScript + TailwindCSS** 桌面介面（方案 A），並內建 **網路磁碟機 (Network Drive / SMB / UNC) 智慧識別與有限功能降級保護機制**。
 
 ---
 
 ## ✨ 核心功能一覽
 
-1. **📁 檔案總管 & 圖片顯示檢視器 (`keeper-explorer`)**
+1. **📁 檔案總管 (`keeper-explorer`)**
    - 自動探索本機磁碟與已掛載的網路磁碟機（解析遠端 `\\Server\Share` UNC 路徑）。
-   - 內建 Rust `image` 解碼引擎：支援 PNG, JPG, JPEG, GIF, WebP, BMP, ICO, SVG 即時圖片預覽、解析度與長寬比檢測、無段縮放檢視。
-   - **網路磁碟安全護欄**：遠端超過 15 MB 的圖片預設啟用按需載入保護；刪除遠端檔案時強制提示網路磁碟不支援本機資源回收筒。
+   - **系統與常見資料夾知識庫**：智慧辨識 Windows 系統核心目錄（如 System32, SysWOW64, WinSxS, Program Files, AppData, Temp 等）與使用者/開發者常見目錄（Desktop, Downloads, .git, node_modules, target, .ssh 等），提供用途說明、安全警告指引與直接項目容量統計。
+   - **全方位檔案預覽**：
+     - **圖片**：PNG, JPG, JPEG, GIF, WebP, BMP, ICO, SVG 即時解碼與無段縮放檢視。
+     - **純文字與程式原始碼**：Markdown（支援原始碼/排版切換）、CSV/TSV（支援原始碼/表格切換）、JSON、Rust、TypeScript、Python、Bash、SQL 等，支援行號顯示與一鍵複製。
+     - **PDF 文件**：內嵌原生 PDF 閱讀檢視器，支援分頁與縮放。
+     - **ZIP 壓縮檔**：免解壓縮即時檢視內部檔案清單、目錄結構與壓縮節省率。
+     - **影音媒體**：MP3, WAV, FLAC, OGG 音訊與 MP4, WebM 影片即時播放。
+     - **二進位與未知檔案**：經典 16 進位 Hex Dump 檢視與 Magic Bytes 檔案特徵碼自動分析。
+   - **網路磁碟安全護欄**：遠端超過 15 MB 的圖片與大檔預設啟用按需載入保護；刪除遠端檔案時強制提示網路磁碟不支援本機資源回收筒。
 2. **🍰 TreeSize 磁碟空間分析與 Treemap (`keeper-treesize`)**
    - 高速統計目錄空間、檔案類型分布（圖片、影片、程式碼、壓縮檔、文件）與 Top 20 巨型檔案。
    - **互動式 Treemap（矩形樹狀圖）**：支援點擊子資料夾直接下鑽（Drill-down）分析。

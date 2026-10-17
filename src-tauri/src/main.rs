@@ -181,5 +181,17 @@ mod tests {
             .and_then(|d| d.get("is_network_drive"))
             .and_then(|v| v.as_bool());
         assert_eq!(is_net, Some(true));
+
+        let prev_res = dispatch_command(
+            "preview_entry",
+            &json!({ "path": "Cargo.toml", "force_network_load": false }),
+        );
+        assert_eq!(prev_res.get("ok").and_then(|v| v.as_bool()), Some(true));
+        let kind = prev_res
+            .get("data")
+            .and_then(|d| d.get("preview_kind"))
+            .and_then(|v| v.as_str());
+        assert_eq!(kind, Some("text"));
     }
 }
+

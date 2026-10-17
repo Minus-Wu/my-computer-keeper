@@ -1,6 +1,7 @@
 use keeper_core::drive::{ inspect_path_capabilities, list_all_drives, DriveInfo, VolumeCapabilities };
 use keeper_core::explorer::{
-    delete_entry, list_directory, preview_image, DirectoryListing, ImagePreviewResult,
+    delete_entry, list_directory, preview_general_entry, preview_image, DirectoryListing,
+    GeneralItemPreview, ImagePreviewResult,
 };
 use keeper_core::lockhunter::{
     inspect_file_locks, schedule_delete_on_reboot, LockHunterReport,
@@ -70,6 +71,19 @@ pub fn dispatch_command(cmd: &str, payload: &Value) -> Value {
                 .unwrap_or(false);
             let res: Result<ImagePreviewResult, _> =
                 preview_image(path, max_dimension, force_network_load);
+            to_api_value(res)
+        }
+        "preview_entry" => {
+            let path = payload
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            let force_network_load = payload
+                .get("force_network_load")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let res: Result<GeneralItemPreview, _> =
+                preview_general_entry(path, force_network_load);
             to_api_value(res)
         }
         "delete_entry" => {

@@ -85,6 +85,114 @@ export interface ImagePreviewResult {
   notice: string | null;
 }
 
+export interface KnownFolderInfo {
+  is_system_or_known: boolean;
+  category_label: string;
+  badge_color: string;
+  summary: string;
+  description: string;
+  safety_warning: string | null;
+}
+
+export interface DirectoryPreviewResult {
+  name: string;
+  path: string;
+  is_system_or_known: boolean;
+  category_label: string;
+  badge_color: string;
+  summary: string;
+  description: string;
+  safety_warning: string | null;
+  direct_subdirs_count: number;
+  direct_files_count: number;
+  direct_size_bytes: number;
+  has_permission_error: boolean;
+}
+
+export interface TextPreviewResult {
+  content: string;
+  total_lines: number;
+  preview_lines: number;
+  is_truncated: boolean;
+  syntax: string;
+  encoding: string;
+}
+
+export interface ZipEntryItem {
+  name: string;
+  is_dir: boolean;
+  uncompressed_size: number;
+  compressed_size: number;
+  compression_ratio: number;
+}
+
+export interface ZipPreviewResult {
+  total_entries: number;
+  total_files: number;
+  total_dirs: number;
+  total_uncompressed_bytes: number;
+  total_compressed_bytes: number;
+  overall_ratio: number;
+  entries: ZipEntryItem[];
+  comment: string | null;
+}
+
+export interface PdfPreviewResult {
+  data_url: string | null;
+  file_size_bytes: number;
+  version: string;
+  notice: string | null;
+  deferred_for_network: boolean;
+}
+
+export interface MediaPreviewResult {
+  media_type: 'audio' | 'video';
+  format: string;
+  data_url: string | null;
+  file_size_bytes: number;
+  notice: string | null;
+}
+
+export interface HexRow {
+  offset: string;
+  hex: string;
+  ascii: string;
+}
+
+export interface HexPreviewResult {
+  file_size_bytes: number;
+  rows: HexRow[];
+  magic_description: string | null;
+}
+
+export type PreviewKind =
+  | 'directory'
+  | 'image'
+  | 'text'
+  | 'pdf'
+  | 'zip'
+  | 'media'
+  | 'hex';
+
+export interface GeneralItemPreview {
+  path: string;
+  name: string;
+  is_dir: boolean;
+  extension: string;
+  file_size_bytes: number;
+  modified_unix: number;
+  preview_kind: PreviewKind;
+  dir_preview: DirectoryPreviewResult | null;
+  image_preview: ImagePreviewResult | null;
+  text_preview: TextPreviewResult | null;
+  pdf_preview: PdfPreviewResult | null;
+  zip_preview: ZipPreviewResult | null;
+  media_preview: MediaPreviewResult | null;
+  hex_preview: HexPreviewResult | null;
+  notice: string | null;
+}
+
+
 export interface TreeSizeNode {
   name: string;
   path: string;

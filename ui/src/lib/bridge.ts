@@ -3,6 +3,7 @@ import type {
   DirectoryListing,
   DriveInfo,
   DuplicateScanReport,
+  GeneralItemPreview,
   ImagePreviewResult,
   JunkScanReport,
   LockHunterReport,
@@ -64,6 +65,12 @@ export const keeperApi = {
       max_dimension: maxDimension,
       force_network_load: forceNetworkLoad,
     }),
+  previewEntry: (path: string, forceNetworkLoad = false) =>
+    invokeKeeper<GeneralItemPreview>('preview_entry', {
+      path,
+      force_network_load: forceNetworkLoad,
+    }),
+
   deleteEntry: (
     path: string,
     useRecycleBin: boolean,

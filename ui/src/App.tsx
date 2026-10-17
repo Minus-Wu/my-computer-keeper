@@ -2,25 +2,34 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
+  Archive,
   ArrowLeftRight,
   ArrowUp,
+  Binary,
+  BookOpen,
+  Check,
   CheckCircle2,
+  Copy,
   Cpu,
   Database,
+  ExternalLink,
   Eye,
   FileCode,
   FileText,
+  Film,
   Folder,
   FolderSync,
   HardDrive,
   Image as ImageIcon,
   Layers,
   Lock,
+  Music,
   Network,
   PieChart,
   RefreshCw,
   Search,
   ShieldAlert,
+  ShieldCheck,
   Sparkles,
   Trash2,
   Unlock,
@@ -40,6 +49,7 @@ import type {
   DriveInfo,
   DuplicateScanReport,
   FileEntry,
+  GeneralItemPreview,
   ImagePreviewResult,
   JunkScanReport,
   LockHunterReport,
@@ -87,17 +97,23 @@ export function App() {
   );
   const [probedCaps, setProbedCaps] = useState<VolumeCapabilities | null>(null);
 
-  // 1. 檔案總管 + 圖片預覽狀態
+  // 1. 檔案總管狀態
   const [listing, setListing] = useState<DirectoryListing | null>(null);
   const [searchFilter, setSearchFilter] = useState<string>('');
   const [onlyImagesFilter, setOnlyImagesFilter] = useState<boolean>(false);
   const [selectedEntry, setSelectedEntry] = useState<FileEntry | null>(null);
+  const [generalPreview, setGeneralPreview] =
+    useState<GeneralItemPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState<boolean>(false);
   const [imagePreview, setImagePreview] = useState<ImagePreviewResult | null>(
     null
   );
   const [imageZoom, setImageZoom] = useState<number>(100);
+  const [copiedText, setCopiedText] = useState<boolean>(false);
+  const [textViewMode, setTextViewMode] = useState<'raw' | 'parsed'>('raw');
   const [confirmNetworkPermanentDelete, setConfirmNetworkPermanentDelete] =
     useState<boolean>(false);
+
 
   // 2. TreeSize 狀態
   const [treeSizePath, setTreeSizePath] = useState<string>('');
@@ -160,6 +176,14 @@ export function App() {
       setSyncLeftPath((prev) => prev || data.current_path);
       setSyncRightPath((prev) => prev || data.current_path);
       setOpsTargetPath((prev) => prev || data.current_path);
+      setSelectedEntry(null);
+      keeperApi
+        .previewEntry(data.current_path)
+        .then((p) => {
+          setGeneralPreview(p);
+          setImagePreview(null);
+        })
+        .catch(() => setGeneralPreview(null));
     } catch (err) {
       notifyError(err);
     } finally {
@@ -175,25 +199,26 @@ export function App() {
     loadDirectory();
   }, [loadDirectory]);
 
-  // 當選擇圖片檔案時，自動載入圖片預覽
+  // 當選擇檔案或資料夾時，自動載入全方位預覽（資料夾說明、圖片、純文字、PDF、ZIP、影音、Hex 等）
   const handleSelectEntry = async (entry: FileEntry, forceNetwork = false) => {
     setSelectedEntry(entry);
-    if (entry.is_image) {
-      try {
-        const preview = await keeperApi.previewImage(
-          entry.path,
-          960,
-          forceNetwork
-        );
-        setImagePreview(preview);
-        setImageZoom(100);
-      } catch (err) {
-        notifyError(err);
-      }
-    } else {
+    setCopiedText(false);
+    setTextViewMode('raw');
+    setPreviewLoading(true);
+    try {
+      const preview = await keeperApi.previewEntry(entry.path, forceNetwork);
+      setGeneralPreview(preview);
+      setImagePreview(preview.image_preview);
+      setImageZoom(100);
+    } catch (err) {
+      notifyError(err);
+      setGeneralPreview(null);
       setImagePreview(null);
+    } finally {
+      setPreviewLoading(false);
     }
   };
+
 
   const handleDeleteEntry = async (entry: FileEntry) => {
     try {
@@ -205,6 +230,7 @@ export function App() {
       notifyStatus(msg);
       setSelectedEntry(null);
       setImagePreview(null);
+      setGeneralPreview(null);
       await loadDirectory(currentPath);
     } catch (err) {
       notifyError(err);
@@ -435,7 +461,7 @@ export function App() {
               </span>
             </div>
             <p className="text-xs text-slate-400">
-              檔案總管 · 圖片檢視 · TreeSize · 工作管理員 · LockHunter · FreeFileSync · 電腦本體維運（支援網路磁碟有限功能）
+              檔案總管 · TreeSize · 工作管理員 · LockHunter · FreeFileSync · 電腦本體維運（支援網路磁碟有限功能）
             </p>
           </div>
         </div>
@@ -443,7 +469,7 @@ export function App() {
         {/* 六大核心模組導覽 Tabs */}
         <nav className="flex flex-wrap items-center gap-1.5 bg-slate-950/80 p-1.5 rounded-xl border border-slate-800">
           {[
-            { id: 'explorer', label: '檔案總管 & 圖片', icon: Folder },
+            { id: 'explorer', label: '檔案總管', icon: Folder },
             { id: 'treesize', label: 'TreeSize 空間分析', icon: PieChart },
             { id: 'taskmgr', label: '工作管理員 & Port', icon: Activity },
             { id: 'lockhunter', label: 'LockHunter 解鎖', icon: Unlock },
@@ -675,7 +701,7 @@ export function App() {
 
         {/* 右側主工作面板 */}
         <main className="flex-1 flex flex-col overflow-hidden">
-          {/* ==================== 1. 檔案總管 & 圖片檢視器 ==================== */}
+          {/* ==================== 1. 檔案總管 ==================== */}
           {activeTab === 'explorer' && (
             <div className="flex-1 flex flex-col overflow-hidden">
               {/* 路徑導覽與工具列 */}
@@ -820,6 +846,17 @@ export function App() {
                                   <ImageIcon className="w-4 h-4 text-pink-400 shrink-0" />
                                 ) : item.category === 'code' ? (
                                   <FileCode className="w-4 h-4 text-cyan-400 shrink-0" />
+                                ) : item.category === 'archive' ||
+                                  ['zip', 'rar', '7z', 'tar', 'gz', 'jar'].includes(
+                                    item.extension
+                                  ) ? (
+                                  <Archive className="w-4 h-4 text-purple-400 shrink-0" />
+                                ) : item.extension === 'pdf' ? (
+                                  <FileText className="w-4 h-4 text-rose-400 shrink-0" />
+                                ) : item.category === 'video' ? (
+                                  <Film className="w-4 h-4 text-teal-400 shrink-0" />
+                                ) : item.category === 'audio' ? (
+                                  <Music className="w-4 h-4 text-emerald-400 shrink-0" />
                                 ) : (
                                   <FileText className="w-4 h-4 text-slate-400 shrink-0" />
                                 )}
@@ -828,7 +865,18 @@ export function App() {
                                 </span>
                                 {item.is_image && (
                                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-pink-500/20 text-pink-300 border border-pink-500/30">
-                                    可預覽圖片
+                                    圖片
+                                  </span>
+                                )}
+                                {item.extension === 'pdf' && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                    PDF
+                                  </span>
+                                )}
+                                {(item.extension === 'zip' ||
+                                  item.extension === 'jar') && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                                    ZIP 壓縮
                                   </span>
                                 )}
                               </td>
@@ -884,41 +932,327 @@ export function App() {
                   </div>
                 </div>
 
-                {/* 右側圖片顯示與詳情檢視面板 */}
-                <div className="w-96 border-l border-slate-800 bg-slate-900/60 p-4 flex flex-col gap-4 overflow-y-auto shrink-0">
-                  <div className="flex items-center justify-between">
+                {/* 右側項目預覽與詳情檢視面板 */}
+                <div className="w-96 lg:w-[480px] xl:w-[520px] border-l border-slate-800 bg-slate-900/60 p-4 flex flex-col gap-4 overflow-y-auto shrink-0">
+                  <div className="flex items-center justify-between pb-1 border-b border-slate-800/80">
                     <div className="flex items-center gap-2 font-semibold text-sm text-white">
-                      <Eye className="w-4 h-4 text-pink-400" />
-                      <span>圖片顯示與檔案檢視器</span>
+                      {generalPreview?.preview_kind === 'directory' ? (
+                        <>
+                          <Folder className="w-4 h-4 text-amber-400" />
+                          <span>資料夾說明與概況</span>
+                        </>
+                      ) : generalPreview?.preview_kind === 'image' ? (
+                        <>
+                          <ImageIcon className="w-4 h-4 text-pink-400" />
+                          <span>圖片影像預覽</span>
+                        </>
+                      ) : generalPreview?.preview_kind === 'text' ? (
+                        <>
+                          <FileCode className="w-4 h-4 text-cyan-400" />
+                          <span>純文字與程式碼預覽</span>
+                        </>
+                      ) : generalPreview?.preview_kind === 'pdf' ? (
+                        <>
+                          <FileText className="w-4 h-4 text-rose-400" />
+                          <span>PDF 文件預覽</span>
+                        </>
+                      ) : generalPreview?.preview_kind === 'zip' ? (
+                        <>
+                          <Archive className="w-4 h-4 text-purple-400" />
+                          <span>ZIP 壓縮檔目錄清單</span>
+                        </>
+                      ) : generalPreview?.preview_kind === 'media' ? (
+                        <>
+                          <Film className="w-4 h-4 text-teal-400" />
+                          <span>影音媒體播放器</span>
+                        </>
+                      ) : generalPreview?.preview_kind === 'hex' ? (
+                        <>
+                          <Binary className="w-4 h-4 text-slate-400" />
+                          <span>二進位 Hex Dump 檢視</span>
+                        </>
+                      ) : (
+                        <>
+                          <Eye className="w-4 h-4 text-cyan-400" />
+                          <span>項目預覽與詳細資訊</span>
+                        </>
+                      )}
                     </div>
-                    {imagePreview?.data_url && (
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() =>
-                            setImageZoom((z) => Math.max(50, z - 25))
-                          }
-                          className="p-1 rounded bg-slate-800 hover:bg-slate-700"
-                          title="縮小圖片"
-                        >
-                          <ZoomOut className="w-3.5 h-3.5" />
-                        </button>
-                        <span className="text-[11px] text-slate-300 px-1">
-                          {imageZoom}%
-                        </span>
-                        <button
-                          onClick={() =>
-                            setImageZoom((z) => Math.min(200, z + 25))
-                          }
-                          className="p-1 rounded bg-slate-800 hover:bg-slate-700"
-                          title="放大圖片"
-                        >
-                          <ZoomIn className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    )}
+
+                    {/* 頂部操作工具按鈕 */}
+                    <div className="flex items-center gap-1.5">
+                      {generalPreview?.preview_kind === 'image' &&
+                        imagePreview?.data_url && (
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() =>
+                                setImageZoom((z) => Math.max(50, z - 25))
+                              }
+                              className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300"
+                              title="縮小圖片"
+                            >
+                              <ZoomOut className="w-3.5 h-3.5" />
+                            </button>
+                            <span className="text-[11px] text-slate-300 px-1 font-mono">
+                              {imageZoom}%
+                            </span>
+                            <button
+                              onClick={() =>
+                                setImageZoom((z) => Math.min(200, z + 25))
+                              }
+                              className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300"
+                              title="放大圖片"
+                            >
+                              <ZoomIn className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
+
+                      {generalPreview?.preview_kind === 'text' &&
+                        generalPreview.text_preview && (
+                          <div className="flex items-center gap-1">
+                            {(generalPreview.text_preview.syntax ===
+                              'markdown' ||
+                              generalPreview.text_preview.syntax === 'csv' ||
+                              generalPreview.text_preview.syntax ===
+                                'tsv') && (
+                              <button
+                                onClick={() =>
+                                  setTextViewMode((m) =>
+                                    m === 'raw' ? 'parsed' : 'raw'
+                                  )
+                                }
+                                className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-cyan-300 border border-slate-700"
+                              >
+                                {textViewMode === 'raw'
+                                  ? generalPreview.text_preview.syntax ===
+                                    'markdown'
+                                    ? '排版預覽'
+                                    : '表格預覽'
+                                  : '原始碼'}
+                              </button>
+                            )}
+                            <button
+                              onClick={() => {
+                                if (generalPreview?.text_preview?.content) {
+                                  navigator.clipboard
+                                    .writeText(
+                                      generalPreview.text_preview.content
+                                    )
+                                    .then(() => {
+                                      setCopiedText(true);
+                                      setTimeout(
+                                        () => setCopiedText(false),
+                                        2000
+                                      );
+                                    });
+                                }
+                              }}
+                              className="flex items-center gap-1 px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-200 border border-slate-700"
+                              title="複製文字內容"
+                            >
+                              {copiedText ? (
+                                <>
+                                  <Check className="w-3 h-3 text-emerald-400" />
+                                  <span className="text-emerald-400">
+                                    已複製
+                                  </span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3 h-3 text-slate-400" />
+                                  <span>複製</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        )}
+
+                      {generalPreview?.preview_kind === 'pdf' &&
+                        generalPreview.pdf_preview?.data_url && (
+                          <button
+                            onClick={() => {
+                              const w = window.open('');
+                              w?.document.write(
+                                `<iframe src="${generalPreview.pdf_preview?.data_url}" style="border:0; top:0; left:0; bottom:0; right:0; width:100%; height:100%;" allowfullscreen></iframe>`
+                              );
+                            }}
+                            className="flex items-center gap-1 px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-rose-300 border border-slate-700"
+                            title="另開新視窗全螢幕閱讀"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                            <span>全螢幕</span>
+                          </button>
+                        )}
+                    </div>
                   </div>
 
-                  {imagePreview ? (
+                  {/* 載入中骨架 */}
+                  {previewLoading && (
+                    <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800/80 text-xs text-cyan-400 animate-pulse flex items-center gap-2">
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>正在讀取並解析項目預覽...</span>
+                    </div>
+                  )}
+
+                  {/* ===================== 1. 資料夾說明預覽 ===================== */}
+                  {generalPreview?.preview_kind === 'directory' &&
+                    generalPreview.dir_preview && (
+                      <div className="space-y-3.5">
+                        <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
+                          <div className="flex items-start gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center shrink-0">
+                              <Folder className="w-5 h-5 text-amber-400" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="font-semibold text-white truncate text-sm">
+                                {generalPreview.dir_preview.name}
+                              </div>
+                              <div className="text-[11px] text-slate-400 break-all select-all font-mono">
+                                {generalPreview.dir_preview.path}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                            <span
+                              className={`text-[10px] px-2 py-0.5 rounded font-medium border ${
+                                generalPreview.dir_preview.badge_color ===
+                                'rose'
+                                  ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                                  : generalPreview.dir_preview.badge_color ===
+                                      'cyan'
+                                    ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                                    : generalPreview.dir_preview.badge_color ===
+                                        'emerald'
+                                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                      : generalPreview.dir_preview
+                                            .badge_color === 'purple'
+                                        ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
+                                        : generalPreview.dir_preview
+                                              .badge_color === 'amber'
+                                          ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                          : generalPreview.dir_preview
+                                                .badge_color === 'blue'
+                                            ? 'bg-blue-500/20 text-blue-300 border-blue-500/40'
+                                            : 'bg-slate-800 text-slate-300 border-slate-700'
+                              }`}
+                            >
+                              {generalPreview.dir_preview.category_label}
+                            </span>
+                            {generalPreview.dir_preview.is_system_or_known && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center gap-1">
+                                <ShieldCheck className="w-3 h-3" />
+                                系統/常見目錄
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* 用途說明卡片 */}
+                        <div className="p-3.5 rounded-xl bg-slate-950/90 border border-slate-800 space-y-2 text-xs">
+                          <div className="font-semibold text-slate-200 flex items-center gap-1.5">
+                            <BookOpen className="w-4 h-4 text-cyan-400" />
+                            <span>目錄功能與用途介紹</span>
+                          </div>
+                          <div className="text-slate-300 leading-relaxed font-medium">
+                            {generalPreview.dir_preview.summary}
+                          </div>
+                          <p className="text-slate-400 leading-relaxed text-[11px] pt-1 border-t border-slate-800/80">
+                            {generalPreview.dir_preview.description}
+                          </p>
+                        </div>
+
+                        {/* 安全性警告指引 */}
+                        {generalPreview.dir_preview.safety_warning && (
+                          <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-700/50 text-xs text-amber-200 flex items-start gap-2.5">
+                            <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                            <div className="leading-relaxed">
+                              <span className="font-semibold block mb-0.5">
+                                安全與維護指引：
+                              </span>
+                              <span>
+                                {generalPreview.dir_preview.safety_warning}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 直屬項目統計 */}
+                        <div className="grid grid-cols-3 gap-2">
+                          <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-center">
+                            <div className="text-[11px] text-slate-400">
+                              直屬子資料夾
+                            </div>
+                            <div className="font-semibold text-white text-sm mt-0.5">
+                              {generalPreview.dir_preview.direct_subdirs_count}
+                            </div>
+                          </div>
+                          <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-center">
+                            <div className="text-[11px] text-slate-400">
+                              直屬檔案數
+                            </div>
+                            <div className="font-semibold text-white text-sm mt-0.5">
+                              {generalPreview.dir_preview.direct_files_count}
+                            </div>
+                          </div>
+                          <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-center">
+                            <div className="text-[11px] text-slate-400">
+                              直屬大小
+                            </div>
+                            <div className="font-semibold text-cyan-300 text-xs mt-1">
+                              {formatBytes(
+                                generalPreview.dir_preview.direct_size_bytes
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 快捷操作按鈕 */}
+                        <div className="flex flex-col gap-2 pt-1">
+                          <button
+                            onClick={() =>
+                              loadDirectory(generalPreview.dir_preview!.path)
+                            }
+                            className="w-full py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs transition-colors flex items-center justify-center gap-1.5"
+                          >
+                            <Folder className="w-4 h-4" />
+                            進入此資料夾瀏覽
+                          </button>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              onClick={() => {
+                                setTreeSizePath(
+                                  generalPreview.dir_preview!.path
+                                );
+                                setActiveTab('treesize');
+                                runTreeSize(generalPreview.dir_preview!.path);
+                              }}
+                              className="py-1.5 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/30 text-xs flex items-center justify-center gap-1"
+                            >
+                              <PieChart className="w-3.5 h-3.5" />
+                              分析空間佔用
+                            </button>
+                            <button
+                              onClick={() => {
+                                setLockTargetPath(
+                                  generalPreview.dir_preview!.path
+                                );
+                                setActiveTab('lockhunter');
+                                runLockHunter(generalPreview.dir_preview!.path);
+                              }}
+                              className="py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 text-xs flex items-center justify-center gap-1"
+                            >
+                              <Unlock className="w-3.5 h-3.5" />
+                              檢查鎖定狀態
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                  {/* ===================== 2. 圖片影像預覽 ===================== */}
+                  {generalPreview?.preview_kind === 'image' && imagePreview && (
                     <div className="space-y-3">
                       {imagePreview.deferred_for_network ? (
                         <div className="p-4 rounded-xl bg-amber-950/50 border border-amber-700/60 text-xs text-amber-200 space-y-3">
@@ -968,8 +1302,8 @@ export function App() {
                         <div className="flex justify-between text-slate-400">
                           <span>影像格式 / 色彩：</span>
                           <span className="text-slate-200">
-                            {imagePreview.format_name} ({imagePreview.color_type}
-                            )
+                            {imagePreview.format_name} (
+                            {imagePreview.color_type})
                           </span>
                         </div>
                         <div className="flex justify-between text-slate-400">
@@ -980,30 +1314,453 @@ export function App() {
                         </div>
                       </div>
                     </div>
-                  ) : selectedEntry ? (
-                    <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-2">
-                      <div className="font-semibold text-white">
-                        {selectedEntry.name}
+                  )}
+
+                  {/* ===================== 3. 純文字與程式碼預覽 ===================== */}
+                  {generalPreview?.preview_kind === 'text' &&
+                    generalPreview.text_preview && (
+                      <div className="space-y-3">
+                        <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <div className="font-semibold text-white truncate max-w-[240px]">
+                              {generalPreview.name}
+                            </div>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 uppercase font-mono">
+                              {generalPreview.text_preview.syntax}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-slate-400 pt-0.5">
+                            <span>行數與大小：</span>
+                            <span className="text-slate-200 font-mono">
+                              {generalPreview.text_preview.total_lines} 行 ·{' '}
+                              {formatBytes(generalPreview.file_size_bytes)}
+                            </span>
+                          </div>
+                        </div>
+
+                        {generalPreview.notice && (
+                          <div className="p-2.5 rounded-lg bg-amber-950/40 border border-amber-700/50 text-[11px] text-amber-200">
+                            {generalPreview.notice}
+                          </div>
+                        )}
+
+                        {/* 程式碼與文字檢視框 */}
+                        {textViewMode === 'parsed' &&
+                        generalPreview.text_preview.syntax === 'markdown' ? (
+                          <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 max-h-96 overflow-y-auto text-xs text-slate-200 leading-relaxed space-y-2">
+                            {generalPreview.text_preview.content
+                              .split('\n')
+                              .map((line, idx) => {
+                                if (line.startsWith('# ')) {
+                                  return (
+                                    <h1
+                                      key={idx}
+                                      className="text-base font-bold text-white border-b border-slate-800 pb-1"
+                                    >
+                                      {line.slice(2)}
+                                    </h1>
+                                  );
+                                }
+                                if (line.startsWith('## ')) {
+                                  return (
+                                    <h2
+                                      key={idx}
+                                      className="text-sm font-semibold text-cyan-300 pt-1"
+                                    >
+                                      {line.slice(3)}
+                                    </h2>
+                                  );
+                                }
+                                if (line.startsWith('### ')) {
+                                  return (
+                                    <h3
+                                      key={idx}
+                                      className="text-xs font-semibold text-slate-200"
+                                    >
+                                      {line.slice(4)}
+                                    </h3>
+                                  );
+                                }
+                                if (
+                                  line.startsWith('- ') ||
+                                  line.startsWith('* ')
+                                ) {
+                                  return (
+                                    <li
+                                      key={idx}
+                                      className="ml-4 list-disc text-slate-300"
+                                    >
+                                      {line.slice(2)}
+                                    </li>
+                                  );
+                                }
+                                if (line.trim().startsWith('>')) {
+                                  return (
+                                    <blockquote
+                                      key={idx}
+                                      className="border-l-2 border-cyan-500 pl-2 text-slate-400 italic"
+                                    >
+                                      {line.replace(/^>\s*/, '')}
+                                    </blockquote>
+                                  );
+                                }
+                                return (
+                                  <p
+                                    key={idx}
+                                    className="text-slate-300 min-h-[1em]"
+                                  >
+                                    {line}
+                                  </p>
+                                );
+                              })}
+                          </div>
+                        ) : textViewMode === 'parsed' &&
+                          (generalPreview.text_preview.syntax === 'csv' ||
+                            generalPreview.text_preview.syntax === 'tsv') ? (
+                          <div className="rounded-xl border border-slate-800 bg-slate-950 p-2 max-h-96 overflow-auto">
+                            <table className="w-full text-[11px] border-collapse">
+                              <tbody>
+                                {generalPreview.text_preview.content
+                                  .split('\n')
+                                  .slice(0, 40)
+                                  .filter((l) => l.trim().length > 0)
+                                  .map((line, rowIdx) => {
+                                    const sep =
+                                      generalPreview?.text_preview?.syntax ===
+                                      'tsv'
+                                        ? '\t'
+                                        : ',';
+                                    const cols = line.split(sep);
+                                    return (
+                                      <tr
+                                        key={rowIdx}
+                                        className={
+                                          rowIdx === 0
+                                            ? 'bg-slate-900 font-semibold text-cyan-300'
+                                            : 'hover:bg-slate-900/50 text-slate-300 border-b border-slate-900'
+                                        }
+                                      >
+                                        {cols.map((col, colIdx) => (
+                                          <td
+                                            key={colIdx}
+                                            className="p-1.5 border border-slate-800 truncate max-w-[120px]"
+                                          >
+                                            {col.trim()}
+                                          </td>
+                                        ))}
+                                      </tr>
+                                    );
+                                  })}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : (
+                          <div className="rounded-xl border border-slate-800 bg-slate-950 p-2.5 max-h-96 overflow-auto font-mono text-[11px]">
+                            <table className="w-full border-collapse">
+                              <tbody>
+                                {generalPreview.text_preview.content
+                                  .split('\n')
+                                  .map((line, idx) => (
+                                    <tr
+                                      key={idx}
+                                      className="hover:bg-slate-900/60 leading-5"
+                                    >
+                                      <td className="w-10 select-none text-right pr-3 text-slate-600 shrink-0 font-mono text-[10px]">
+                                        {idx + 1}
+                                      </td>
+                                      <td className="text-slate-300 whitespace-pre break-all">
+                                        {line || ' '}
+                                      </td>
+                                    </tr>
+                                  ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
                       </div>
-                      <div className="text-slate-400 break-all">
-                        路徑：{selectedEntry.path}
+                    )}
+
+                  {/* ===================== 4. PDF 文件預覽 ===================== */}
+                  {generalPreview?.preview_kind === 'pdf' &&
+                    generalPreview.pdf_preview && (
+                      <div className="space-y-3">
+                        <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold text-white truncate max-w-[240px]">
+                              {generalPreview.name}
+                            </span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 uppercase">
+                              {generalPreview.pdf_preview.version}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-slate-400">
+                            <span>文件大小：</span>
+                            <span className="text-slate-200 font-mono">
+                              {formatBytes(
+                                generalPreview.pdf_preview.file_size_bytes
+                              )}
+                            </span>
+                          </div>
+                        </div>
+
+                        {generalPreview.pdf_preview.deferred_for_network ? (
+                          <div className="p-4 rounded-xl bg-amber-950/40 border border-amber-700/60 text-xs text-amber-200 space-y-3">
+                            <div className="font-semibold flex items-center gap-1.5">
+                              <ShieldAlert className="w-4 h-4 text-amber-400" />
+                              <span>PDF 大檔保護已觸發</span>
+                            </div>
+                            <p>{generalPreview.pdf_preview.notice}</p>
+                            {selectedEntry && (
+                              <button
+                                onClick={() =>
+                                  handleSelectEntry(selectedEntry, true)
+                                }
+                                className="w-full py-2 rounded-lg bg-rose-500 text-white font-semibold hover:bg-rose-400"
+                              >
+                                強制載入 PDF 原文預覽
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          generalPreview.pdf_preview.data_url && (
+                            <div className="rounded-xl border border-slate-800 overflow-hidden bg-slate-950">
+                              <iframe
+                                src={generalPreview.pdf_preview.data_url}
+                                title={generalPreview.name}
+                                className="w-full h-96 border-none bg-slate-900"
+                              />
+                            </div>
+                          )
+                        )}
                       </div>
-                      <div className="text-slate-400">
-                        大小：
-                        {selectedEntry.is_dir
-                          ? '資料夾'
-                          : formatBytes(selectedEntry.size_bytes)}
+                    )}
+
+                  {/* ===================== 5. ZIP 壓縮檔預覽 ===================== */}
+                  {generalPreview?.preview_kind === 'zip' &&
+                    generalPreview.zip_preview && (
+                      <div className="space-y-3">
+                        <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-2">
+                          <div className="font-semibold text-white truncate">
+                            {generalPreview.name}
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-800 text-[11px]">
+                            <div>
+                              <span className="text-slate-400">項目總數：</span>
+                              <span className="text-slate-200 font-medium ml-1">
+                                {generalPreview.zip_preview.total_files} 檔案 ·{' '}
+                                {generalPreview.zip_preview.total_dirs} 目錄
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-slate-400">整體節省：</span>
+                              <span className="text-emerald-400 font-bold ml-1">
+                                {generalPreview.zip_preview.overall_ratio.toFixed(
+                                  1
+                                )}
+                                %
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-slate-400">原始總量：</span>
+                              <span className="text-slate-300 font-mono ml-1">
+                                {formatBytes(
+                                  generalPreview.zip_preview
+                                    .total_uncompressed_bytes
+                                )}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-slate-400">壓縮大小：</span>
+                              <span className="text-purple-300 font-mono ml-1">
+                                {formatBytes(
+                                  generalPreview.zip_preview
+                                    .total_compressed_bytes
+                                )}
+                              </span>
+                            </div>
+                          </div>
+                          {generalPreview.zip_preview.comment && (
+                            <div className="text-[10px] text-slate-400 italic pt-1">
+                              註解：{generalPreview.zip_preview.comment}
+                            </div>
+                          )}
+                        </div>
+
+                        {generalPreview.notice && (
+                          <div className="p-2.5 rounded-lg bg-amber-950/40 border border-amber-700/50 text-[11px] text-amber-200">
+                            {generalPreview.notice}
+                          </div>
+                        )}
+
+                        {/* 壓縮檔內部檔案列表 */}
+                        <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-950 max-h-72 overflow-y-auto">
+                          <table className="w-full text-[11px] text-left border-collapse">
+                            <thead>
+                              <tr className="bg-slate-900 text-slate-400 border-b border-slate-800 sticky top-0">
+                                <th className="p-2 font-medium">內部名稱</th>
+                                <th className="p-2 font-medium text-right w-20">
+                                  原始大小
+                                </th>
+                                <th className="p-2 font-medium text-right w-16">
+                                  壓縮率
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-800/60">
+                              {generalPreview.zip_preview.entries.map(
+                                (item, i) => (
+                                  <tr
+                                    key={i}
+                                    className="hover:bg-slate-900/50 text-slate-300"
+                                  >
+                                    <td className="p-1.5 flex items-center gap-1.5 truncate max-w-[200px]">
+                                      {item.is_dir ? (
+                                        <Folder className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                      ) : (
+                                        <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                      )}
+                                      <span className="truncate">
+                                        {item.name}
+                                      </span>
+                                    </td>
+                                    <td className="p-1.5 text-right font-mono text-slate-400">
+                                      {item.is_dir
+                                        ? '-'
+                                        : formatBytes(item.uncompressed_size)}
+                                    </td>
+                                    <td className="p-1.5 text-right font-mono text-emerald-400">
+                                      {item.is_dir
+                                        ? '-'
+                                        : `${item.compression_ratio.toFixed(0)}%`}
+                                    </td>
+                                  </tr>
+                                )
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
-                      <p className="text-slate-500 pt-2">
-                        點選任何 PNG / JPG / GIF / WebP / BMP / ICO / SVG 圖片檔案即可在此即時渲染影像預覽與色彩資訊。
-                      </p>
-                    </div>
-                  ) : (
+                    )}
+
+                  {/* ===================== 6. 影音媒體預覽 ===================== */}
+                  {generalPreview?.preview_kind === 'media' &&
+                    generalPreview.media_preview && (
+                      <div className="space-y-3">
+                        <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-1.5">
+                          <div className="font-semibold text-white truncate">
+                            {generalPreview.name}
+                          </div>
+                          <div className="flex justify-between text-slate-400">
+                            <span>媒體類型 / 格式：</span>
+                            <span className="text-teal-300 font-medium">
+                              {generalPreview.media_preview.media_type ===
+                              'audio'
+                                ? '音訊檔案'
+                                : '視訊影片'}{' '}
+                              ({generalPreview.media_preview.format})
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-slate-400">
+                            <span>檔案大小：</span>
+                            <span className="text-slate-200 font-mono">
+                              {formatBytes(generalPreview.file_size_bytes)}
+                            </span>
+                          </div>
+                        </div>
+
+                        {generalPreview.media_preview.data_url && (
+                          <div className="p-4 rounded-xl border border-slate-800 bg-slate-950 flex flex-col items-center justify-center">
+                            {generalPreview.media_preview.media_type ===
+                            'audio' ? (
+                              <div className="w-full space-y-3 text-center">
+                                <Music className="w-10 h-10 text-teal-400 mx-auto" />
+                                <audio
+                                  controls
+                                  src={generalPreview.media_preview.data_url}
+                                  className="w-full"
+                                />
+                              </div>
+                            ) : (
+                              <video
+                                controls
+                                src={generalPreview.media_preview.data_url}
+                                className="w-full max-h-72 rounded-lg bg-black"
+                              />
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                  {/* ===================== 7. 二進位 Hex Dump 預覽 ===================== */}
+                  {generalPreview?.preview_kind === 'hex' &&
+                    generalPreview.hex_preview && (
+                      <div className="space-y-3">
+                        <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-2">
+                          <div className="font-semibold text-white truncate">
+                            {generalPreview.name}
+                          </div>
+                          <div className="flex justify-between text-slate-400">
+                            <span>檔案大小：</span>
+                            <span className="text-slate-200 font-mono">
+                              {formatBytes(generalPreview.file_size_bytes)}
+                            </span>
+                          </div>
+                          {generalPreview.hex_preview.magic_description && (
+                            <div className="p-2 rounded bg-cyan-950/40 border border-cyan-800/60 text-[11px] text-cyan-200">
+                              <span className="font-semibold block mb-0.5">
+                                檔案特徵碼分析：
+                              </span>
+                              <span>
+                                {generalPreview.hex_preview.magic_description}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Hex Dump 視窗 */}
+                        <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 font-mono text-[10px] max-h-80 overflow-auto">
+                          <table className="w-full border-collapse">
+                            <thead>
+                              <tr className="text-slate-500 border-b border-slate-800 pb-1 select-none text-left">
+                                <th className="w-16">Offset</th>
+                                <th>Hex</th>
+                                <th className="w-24 text-right">ASCII</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {generalPreview.hex_preview.rows.map((row, i) => (
+                                <tr
+                                  key={i}
+                                  className="hover:bg-slate-900/60 leading-5"
+                                >
+                                  <td className="text-cyan-500/80 font-mono select-none">
+                                    {row.offset}
+                                  </td>
+                                  <td className="text-slate-300 font-mono tracking-wider whitespace-pre px-2">
+                                    {row.hex}
+                                  </td>
+                                  <td className="text-emerald-400/90 font-mono text-right whitespace-pre">
+                                    {row.ascii}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                  {/* 空狀態 */}
+                  {!generalPreview && !previewLoading && (
                     <div className="p-6 rounded-xl border border-dashed border-slate-800 text-center text-xs text-slate-400 space-y-2">
-                      <ImageIcon className="w-8 h-8 text-slate-600 mx-auto" />
+                      <Folder className="w-8 h-8 text-slate-600 mx-auto" />
                       <p>
-                        從左側列表點選任何圖片或檔案，即可透過 Rust{' '}
-                        <code>image</code> 引擎即時解碼顯示圖片與中繼資料。
+                        從左側列表點選任何資料夾或檔案，即可檢視即時預覽。
+                      </p>
+                      <p className="text-[11px] text-slate-500">
+                        支援系統與常見資料夾詳細說明、圖片、純文字程式碼、PDF
+                        文件、ZIP 壓縮檔、影音媒體與二進位 Hex Dump。
                       </p>
                     </div>
                   )}
@@ -1025,6 +1782,7 @@ export function App() {
                     </label>
                   )}
                 </div>
+
               </div>
             </div>
           )}
