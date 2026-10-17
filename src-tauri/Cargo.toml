@@ -1,0 +1,13 @@
+[package]
+name = "my-computer-keeper"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Tauri v2 & Rust Desktop Host for My Computer Keeper"
+
+[dependencies]
+keeper-core = { path = "../crates/keeper-core" }
+serde.workspace = true
+serde_json.workspace = true
+tiny_http = "0.12"

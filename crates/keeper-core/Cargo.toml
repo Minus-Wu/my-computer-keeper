@@ -1,0 +1,25 @@
+[package]
+name = "keeper-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+blake3.workspace = true
+sysinfo.workspace = true
+image.workspace = true
+base64.workspace = true
+rayon.workspace = true
+walkdir.workspace = true
+trash.workspace = true
+chrono.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
