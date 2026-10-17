@@ -520,6 +520,27 @@ export function App() {
 
   const activeCapabilities = listing?.capabilities ?? null;
 
+  // 右方預覽區域焦點目標（選中的項目，若無則為當前瀏覽的目錄）
+  const previewTarget = useMemo(() => {
+    if (selectedEntry) {
+      return {
+        path: selectedEntry.path,
+        name: selectedEntry.name,
+        isDir: selectedEntry.is_dir,
+        isEntry: true,
+      };
+    }
+    const curPath = generalPreview?.dir_preview?.path || currentPath;
+    const curName =
+      generalPreview?.dir_preview?.name || listing?.current_path || '';
+    return {
+      path: curPath,
+      name: curName,
+      isDir: true,
+      isEntry: false,
+    };
+  }, [selectedEntry, generalPreview, currentPath, listing]);
+
   return (
     <div className="h-screen overflow-hidden flex flex-col bg-slate-950 text-slate-100">
       {/* 頂部系統標題與模組導覽列 */}
@@ -831,30 +852,6 @@ export function App() {
                     className="bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 w-44"
                   />
                 </div>
-
-                {/* 跨模組快速聯動按鈕 */}
-                <button
-                  onClick={() => {
-                    setTreeSizePath(currentPath);
-                    setActiveTab('treesize');
-                    runTreeSize(currentPath);
-                  }}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/30 text-xs shrink-0"
-                >
-                  <PieChart className="w-3.5 h-3.5" />
-                  {t("分析此目錄空間")}
-                </button>
-
-                <button
-                  onClick={() => {
-                    openLockModal(selectedEntry?.path ?? currentPath);
-                  }}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 text-xs shrink-0"
-                  title={t("使用 LockHunter 查詢誰鎖住了此項目")}
-                >
-                  <Unlock className="w-3.5 h-3.5" />
-                  {t("檢查誰鎖住了此處")}
-                </button>
               </div>
 
               {/* 檔案清單 + 右側圖片檢視面板 */}
@@ -881,15 +878,12 @@ export function App() {
                       <thead>
                         <tr className="border-b border-slate-800 bg-slate-900/90 text-slate-400">
                           <th className="py-2.5 px-3 font-medium min-w-0">{t("名稱")}</th>
-                          <th className="py-2.5 px-3 font-medium w-20 shrink-0">{t("類型")}</th>
-                          <th className="py-2.5 px-3 font-medium w-24 text-right shrink-0">
+                          <th className="py-2.5 px-3 font-medium w-24 shrink-0">{t("類型")}</th>
+                          <th className="py-2.5 px-3 font-medium w-28 text-right shrink-0">
                             {t("大小")}
                           </th>
-                          <th className="py-2.5 px-3 font-medium w-36 shrink-0">
+                          <th className="py-2.5 px-3 font-medium w-48 shrink-0">
                             {t("修改時間")}
-                          </th>
-                          <th className="py-2.5 px-3 font-medium w-40 text-right whitespace-nowrap shrink-0">
-                            {t("快速操作")}
                           </th>
                         </tr>
                       </thead>
@@ -909,7 +903,7 @@ export function App() {
                                   : 'hover:bg-slate-800/60 text-slate-200'
                               }`}
                             >
-                              <td className="py-2 px-3 min-w-0 max-w-0 overflow-hidden">
+                              <td className="py-2.5 px-3 min-w-0 max-w-0 overflow-hidden">
                                 <div className="flex items-center gap-2 min-w-0">
                                   {item.is_dir ? (
                                     <Folder className="w-4 h-4 text-amber-400 shrink-0" />
@@ -955,47 +949,18 @@ export function App() {
                                   )}
                                 </div>
                               </td>
-                              <td className="py-2 px-3 text-slate-400 truncate whitespace-nowrap">
+                              <td className="py-2.5 px-3 text-slate-400 truncate whitespace-nowrap">
                                 {item.is_dir
                                   ? t("資料夾")
                                   : item.extension.toUpperCase() || t("檔案")}
                               </td>
-                              <td className="py-2 px-3 text-right font-mono text-slate-300 whitespace-nowrap">
+                              <td className="py-2.5 px-3 text-right font-mono text-slate-300 whitespace-nowrap">
                                 {item.is_dir
                                   ? '-'
                                   : formatBytes(item.size_bytes)}
                               </td>
-                              <td className="py-2 px-3 text-slate-400 whitespace-nowrap truncate">
+                              <td className="py-2.5 px-3 text-slate-400 whitespace-nowrap">
                                 {formatTimestamp(item.modified_unix, locale)}
-                              </td>
-                              <td
-                                className="py-2 px-3 text-right whitespace-nowrap shrink-0"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <div className="inline-flex items-center justify-end gap-1.5 whitespace-nowrap">
-                                  {item.is_dir && (
-                                    <button
-                                      onClick={() => loadDirectory(item.path)}
-                                      className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 shrink-0"
-                                    >
-                                      {t("開啟")}
-                                    </button>
-                                  )}
-                                  <button
-                                    onClick={() => openLockModal(item.path)}
-                                    className="px-2 py-1 rounded bg-amber-500/15 hover:bg-amber-500/30 text-amber-300 shrink-0"
-                                    title={t("使用 LockHunter 查詢誰鎖住了此項目")}
-                                  >
-                                    {t("解鎖")}
-                                  </button>
-                                  <button
-                                    onClick={() => handleDeleteEntry(item)}
-                                    className="px-2 py-1 rounded bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 shrink-0"
-                                    title={t("刪除項目")}
-                                  >
-                                    {t("刪除")}
-                                  </button>
-                                </div>
                               </td>
                             </tr>
                           );
@@ -1160,6 +1125,68 @@ export function App() {
                     </div>
                   </div>
 
+                  {/* 右方區域頂端快速操作工具列 */}
+                  <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 flex flex-wrap items-center justify-between gap-2 shrink-0">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider shrink-0">
+                        {t("快速操作")}
+                      </span>
+                      <span
+                        className="text-xs text-slate-300 font-medium truncate max-w-[180px] font-mono"
+                        title={previewTarget.path}
+                      >
+                        {previewTarget.name}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {previewTarget.isDir && previewTarget.isEntry && (
+                        <button
+                          onClick={() => loadDirectory(previewTarget.path)}
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs shadow-sm transition-colors"
+                          title={t("開啟")}
+                        >
+                          <Folder className="w-3.5 h-3.5" />
+                          <span>{t("開啟")}</span>
+                        </button>
+                      )}
+                      {previewTarget.isDir && (
+                        <button
+                          onClick={() => {
+                            setTreeSizePath(previewTarget.path);
+                            setActiveTab('treesize');
+                            runTreeSize(previewTarget.path);
+                          }}
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/30 text-xs font-medium transition-colors"
+                          title={t("分析此目錄空間")}
+                        >
+                          <PieChart className="w-3.5 h-3.5" />
+                          <span>{t("分析空間佔用")}</span>
+                        </button>
+                      )}
+                      <button
+                        onClick={() => openLockModal(previewTarget.path)}
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 text-xs font-medium transition-colors"
+                        title={t("使用 LockHunter 查詢誰鎖住了此項目")}
+                      >
+                        <Unlock className="w-3.5 h-3.5" />
+                        <span>{t("解鎖")}</span>
+                      </button>
+                      {previewTarget.isEntry && (
+                        <button
+                          onClick={() => {
+                            if (selectedEntry) handleDeleteEntry(selectedEntry);
+                          }}
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-500/20 text-rose-300 border border-rose-500/30 hover:bg-rose-500/30 text-xs font-medium transition-colors"
+                          title={t("刪除項目")}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>{t("刪除")}</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
                   {/* 載入中骨架 */}
                   {previewLoading && (
                     <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800/80 text-xs text-cyan-400 animate-pulse flex items-center gap-2">
@@ -1278,43 +1305,6 @@ export function App() {
                                 generalPreview.dir_preview.direct_size_bytes
                               )}
                             </div>
-                          </div>
-                        </div>
-
-                        {/* 快捷操作按鈕 */}
-                        <div className="flex flex-col gap-2 pt-1">
-                          <button
-                            onClick={() =>
-                              loadDirectory(generalPreview.dir_preview!.path)
-                            }
-                            className="w-full py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs transition-colors flex items-center justify-center gap-1.5"
-                          >
-                            <Folder className="w-4 h-4" />
-                            {t("進入此資料夾瀏覽")}
-                          </button>
-                          <div className="grid grid-cols-2 gap-2">
-                            <button
-                              onClick={() => {
-                                setTreeSizePath(
-                                  generalPreview.dir_preview!.path
-                                );
-                                setActiveTab('treesize');
-                                runTreeSize(generalPreview.dir_preview!.path);
-                              }}
-                              className="py-1.5 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/30 text-xs flex items-center justify-center gap-1"
-                            >
-                              <PieChart className="w-3.5 h-3.5" />
-                              {t("分析空間佔用")}
-                            </button>
-                            <button
-                              onClick={() => {
-                                openLockModal(generalPreview.dir_preview!.path);
-                              }}
-                              className="py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 text-xs flex items-center justify-center gap-1"
-                            >
-                              <Unlock className="w-3.5 h-3.5" />
-                              {t("檢查鎖定狀態")}
-                            </button>
                           </div>
                         </div>
                       </div>
