@@ -4,7 +4,6 @@
   },
   "已完成 FreeFileSync 同步預演 (Dry-Run)，未實際修改磁碟檔案。": "FreeFileSync dry-run completed. No files on disk were modified.",
   "已完成 FreeFileSync 檔案同步作業！": "FreeFileSync synchronization completed!",
-  "檔案總管 · TreeSize · 工作管理員 · LockHunter · FreeFileSync · 電腦本體維運（支援網路磁碟有限功能）": "File Explorer · TreeSize · Task Manager · LockHunter · FreeFileSync · PC Maintenance (limited-feature mode for network drives)",
   "檔案總管": "File Explorer",
   "TreeSize 空間分析": "TreeSize Disk Analysis",
   "工作管理員 & Port": "Task Manager & Ports",

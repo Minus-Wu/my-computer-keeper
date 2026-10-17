@@ -467,60 +467,51 @@ export function App() {
   return (
     <div className="h-screen overflow-hidden flex flex-col bg-slate-950 text-slate-100">
       {/* 頂部系統標題與模組導覽列 */}
-      <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur px-5 py-3 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
-            <HardDrive className="w-5 h-5 text-white" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="font-bold text-lg tracking-tight text-white">
-                My Computer Keeper
-              </h1>
-              <span className="text-xs px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-medium">
-                Rust Core + Tauri v2
-              </span>
+      <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur px-4 py-2 flex items-center justify-between gap-3 shrink-0">
+        <div className="flex items-center gap-2">
+          {/* 六大核心模組導覽 Tabs 與位於檔案總管左側的應用程式圖示 */}
+          <nav className="flex flex-wrap items-center gap-1.5 bg-slate-950/80 p-1 rounded-xl border border-slate-800">
+            <div
+              title="My Computer Keeper"
+              className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-md shadow-cyan-500/20 text-white shrink-0 cursor-default mx-1 select-none"
+            >
+              <HardDrive className="w-4 h-4" />
             </div>
-            <p className="text-xs text-slate-400">
-              {t("檔案總管 · TreeSize · 工作管理員 · LockHunter · FreeFileSync · 電腦本體維運（支援網路磁碟有限功能）")}
-            </p>
-          </div>
+
+            {[
+              { id: 'explorer', label: t("檔案總管"), icon: Folder },
+              { id: 'treesize', label: t("TreeSize 空間分析"), icon: PieChart },
+              { id: 'taskmgr', label: t("工作管理員 & Port"), icon: Activity },
+              { id: 'lockhunter', label: t("LockHunter 解鎖"), icon: Unlock },
+              { id: 'sync', label: t("FreeFileSync 同步"), icon: FolderSync },
+              { id: 'ops', label: t("電腦本體維運中心"), icon: Wrench },
+            ].map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id as ModuleTab)}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    isActive
+                      ? 'bg-cyan-500 text-slate-950 shadow-md shadow-cyan-500/20 font-semibold'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  {tab.label}
+                </button>
+              );
+            })}
+          </nav>
         </div>
 
-        {/* 六大核心模組導覽 Tabs */}
-        <nav className="flex flex-wrap items-center gap-1.5 bg-slate-950/80 p-1.5 rounded-xl border border-slate-800">
-          {[
-            { id: 'explorer', label: t("檔案總管"), icon: Folder },
-            { id: 'treesize', label: t("TreeSize 空間分析"), icon: PieChart },
-            { id: 'taskmgr', label: t("工作管理員 & Port"), icon: Activity },
-            { id: 'lockhunter', label: t("LockHunter 解鎖"), icon: Unlock },
-            { id: 'sync', label: t("FreeFileSync 同步"), icon: FolderSync },
-            { id: 'ops', label: t("電腦本體維運中心"), icon: Wrench },
-          ].map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as ModuleTab)}
-                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-medium transition-all ${
-                  isActive
-                    ? 'bg-cyan-500 text-slate-950 shadow-md shadow-cyan-500/20 font-semibold'
-                    : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
-                }`}
-              >
-                <Icon className="w-4 h-4" />
-                {tab.label}
-              </button>
-            );
-          })}
-        </nav>
         <select
           value={locale}
           onChange={(e) => setLocale(e.target.value)}
           aria-label="Language"
           title="Language"
-          className="text-xs bg-slate-950/80 border border-slate-800 rounded-lg px-2.5 py-2 text-slate-200 focus:outline-none focus:border-cyan-500"
+          className="text-xs bg-slate-950/80 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-500"
         >
           {availableLocales.map((l) => (
             <option key={l.code} value={l.code}>
