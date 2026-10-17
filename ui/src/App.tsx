@@ -702,8 +702,8 @@ export function App() {
         {/* 右側主工作面板 */}
         <main className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
           {/* ==================== 1. 檔案總管 ==================== */}
-          {activeTab === 'explorer' && (
-            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          {(
+            <div className={activeTab === 'explorer' ? "flex-1 min-h-0 flex flex-col overflow-hidden" : "hidden"}>
               {/* 路徑導覽與工具列 */}
               <div className="p-3 border-b border-slate-800 bg-slate-900/40 flex flex-wrap items-center gap-2">
                 <button
@@ -1788,8 +1788,8 @@ export function App() {
           )}
 
           {/* ==================== 2. TreeSize 磁碟空間分析與 Treemap ==================== */}
-          {activeTab === 'treesize' && (
-            <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          {(
+            <div className={activeTab === 'treesize' ? "flex-1 overflow-y-auto p-5 space-y-5" : "hidden"}>
               <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/60 p-4 rounded-2xl border border-slate-800">
                 <div className="flex-1 flex gap-2 min-w-[280px]">
                   <input
@@ -1951,8 +1951,8 @@ export function App() {
           )}
 
           {/* ==================== 3. 工作管理員 & Port Hunter ==================== */}
-          {activeTab === 'taskmgr' && (
-            <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          {(
+            <div className={activeTab === 'taskmgr' ? "flex-1 overflow-y-auto p-5 space-y-5" : "hidden"}>
               {/* 硬體即時儀表板 */}
               {sysSnapshot && (
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -2184,8 +2184,8 @@ export function App() {
           )}
 
           {/* ==================== 4. LockHunter 檔案佔用解鎖器 ==================== */}
-          {activeTab === 'lockhunter' && (
-            <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          {(
+            <div className={activeTab === 'lockhunter' ? "flex-1 overflow-y-auto p-5 space-y-5" : "hidden"}>
               <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 space-y-3">
                 <h2 className="text-sm font-semibold text-white flex items-center gap-2">
                   <Unlock className="w-4 h-4 text-amber-400" />
@@ -2316,8 +2316,8 @@ export function App() {
           )}
 
           {/* ==================== 5. FreeFileSync 智慧檔案同步 ==================== */}
-          {activeTab === 'sync' && (
-            <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          {(
+            <div className={activeTab === 'sync' ? "flex-1 overflow-y-auto p-5 space-y-5" : "hidden"}>
               <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <h2 className="text-sm font-semibold text-white flex items-center gap-2">
@@ -2521,8 +2521,8 @@ export function App() {
           )}
 
           {/* ==================== 6. 電腦本體維運中心 (System Ops) ==================== */}
-          {activeTab === 'ops' && (
-            <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          {(
+            <div className={activeTab === 'ops' ? "flex-1 overflow-y-auto p-5 space-y-5" : "hidden"}>
               {/* 開發垃圾與重複檔案/圖片掃描列 */}
               <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 space-y-3">
                 <h2 className="text-sm font-semibold text-white flex items-center gap-2">
