@@ -444,7 +444,7 @@ export function App() {
   const activeCapabilities = listing?.capabilities ?? null;
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100">
+    <div className="h-screen overflow-hidden flex flex-col bg-slate-950 text-slate-100">
       {/* 頂部系統標題與模組導覽列 */}
       <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur px-5 py-3 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -544,7 +544,7 @@ export function App() {
       )}
 
       {/* 主內容區 */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 min-h-0 flex overflow-hidden">
         {/* 左側磁碟機與網路磁碟機狀態欄 */}
         <aside className="w-72 border-r border-slate-800 bg-slate-900/50 p-4 flex flex-col gap-4 overflow-y-auto shrink-0">
           <div>
@@ -700,10 +700,10 @@ export function App() {
         </aside>
 
         {/* 右側主工作面板 */}
-        <main className="flex-1 flex flex-col overflow-hidden">
+        <main className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
           {/* ==================== 1. 檔案總管 ==================== */}
           {activeTab === 'explorer' && (
-            <div className="flex-1 flex flex-col overflow-hidden">
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
               {/* 路徑導覽與工具列 */}
               <div className="p-3 border-b border-slate-800 bg-slate-900/40 flex flex-wrap items-center gap-2">
                 <button
@@ -790,9 +790,9 @@ export function App() {
               </div>
 
               {/* 檔案清單 + 右側圖片檢視面板 */}
-              <div className="flex-1 flex overflow-hidden">
+              <div className="flex-1 min-h-0 flex overflow-hidden">
                 {/* 檔案表格 */}
-                <div className="flex-1 overflow-y-auto p-3">
+                <div className="flex-1 min-w-0 min-h-0 overflow-y-auto p-3">
                   <div className="mb-2 flex items-center justify-between text-xs text-slate-400 px-2">
                     <span>
                       共 {listing?.total_dirs ?? 0} 個資料夾、
