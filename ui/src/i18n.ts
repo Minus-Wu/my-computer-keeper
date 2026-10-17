@@ -13,6 +13,12 @@ export interface LocaleInfo {
 }
 
 const dictionaries: Record<string, Record<string, string>> = {};
+// 後端 (Rust) 回傳的中文訊息翻譯，鍵值中的 {} 為動態參數佔位符。
+interface BackendDict {
+  exact: Record<string, string>;
+  patterns: { re: RegExp; text: string }[];
+}
+const backendDicts: Record<string, BackendDict> = {};
 const localeList: LocaleInfo[] = [];
 
 for (const [path, dict] of Object.entries(modules)) {
@@ -23,6 +29,21 @@ for (const [path, dict] of Object.entries(modules)) {
     if (k !== '_meta' && typeof v === 'string') strings[k] = v;
   }
   dictionaries[code] = strings;
+  const backend: BackendDict = { exact: {}, patterns: [] };
+  const rawBackend = (dict._backend ?? {}) as Record<string, unknown>;
+  for (const [k, v] of Object.entries(rawBackend)) {
+    if (typeof v !== 'string') continue;
+    if (k.includes('{}')) {
+      const source = k
+        .split('{}')
+        .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+        .join('([\\s\\S]*?)');
+      backend.patterns.push({ re: new RegExp('^' + source + '$'), text: v });
+    } else {
+      backend.exact[k] = v;
+    }
+  }
+  backendDicts[code] = backend;
   localeList.push({ code, name: meta?.name ?? code });
 }
 
@@ -83,4 +104,25 @@ export function translate(locale: string, key: string, params?: TranslateParams)
   return text.replace(/\{(\w+)\}/g, (m, name: string) =>
     name in params ? String(params[name]) : m,
   );
+}
+
+/**
+ * 翻譯後端 (Rust) 回傳的中文訊息：先精確比對，再比對含 {} 參數的樣式。
+ * 找不到對應翻譯（例如檔名、路徑、系統訊息）時原樣回傳。
+ */
+export function translateBackend(locale: string, text: string | null | undefined, depth = 0): string {
+  if (!text) return text ?? '';
+  const dict = backendDicts[locale];
+  if (!dict) return text;
+  const exact = dict.exact[text];
+  if (exact !== undefined) return exact;
+  if (depth > 2 || !/[\u4e00-\u9fff]/.test(text)) return text;
+  for (const { re, text: tpl } of dict.patterns) {
+    const m = re.exec(text);
+    if (!m) continue;
+    const args = m.slice(1).map((a) => translateBackend(locale, a, depth + 1));
+    let i = 0;
+    return tpl.replace(/\{\}/g, () => args[i++] ?? '');
+  }
+  return text;
 }

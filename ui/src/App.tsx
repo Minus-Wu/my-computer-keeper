@@ -4,6 +4,7 @@ import {
   detectLocale,
   persistLocale,
   translate,
+  translateBackend,
   type TranslateParams,
 } from './i18n';
 import {
@@ -93,6 +94,10 @@ export function App() {
   const [locale, setLocale] = useState<string>(detectLocale);
   const t = useCallback(
     (key: string, params?: TranslateParams) => translate(locale, key, params),
+    [locale]
+  );
+  const tx = useCallback(
+    (text: string | null | undefined) => translateBackend(locale, text),
     [locale]
   );
   useEffect(() => {
@@ -540,7 +545,7 @@ export function App() {
             ) : (
               <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
             )}
-            <span>{errorBanner ?? statusBanner}</span>
+            <span>{tx(errorBanner ?? statusBanner)}</span>
           </div>
           <button
             onClick={() => {
@@ -566,7 +571,7 @@ export function App() {
           </div>
           <ul className="list-disc list-inside text-amber-200/90 space-y-0.5">
             {activeCapabilities.limitations_notice.map((note, idx) => (
-              <li key={idx}>{note}</li>
+              <li key={idx}>{tx(note)}</li>
             ))}
           </ul>
         </div>
@@ -620,11 +625,11 @@ export function App() {
                             : 'bg-slate-800 text-slate-300'
                         }`}
                       >
-                        {isNet ? t("🌐 網路磁碟 (有限功能)") : d.file_system}
+                        {isNet ? t("🌐 網路磁碟 (有限功能)") : tx(d.file_system)}
                       </span>
                     </div>
                     <div className="text-xs text-slate-400 truncate mb-2">
-                      {d.name}
+                      {tx(d.name)}
                     </div>
                     <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mb-1">
                       <div
@@ -1169,7 +1174,7 @@ export function App() {
                                             : 'bg-slate-800 text-slate-300 border-slate-700'
                               }`}
                             >
-                              {generalPreview.dir_preview.category_label}
+                              {tx(generalPreview.dir_preview.category_label)}
                             </span>
                             {generalPreview.dir_preview.is_system_or_known && (
                               <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center gap-1">
@@ -1187,10 +1192,10 @@ export function App() {
                             <span>{t("目錄功能與用途介紹")}</span>
                           </div>
                           <div className="text-slate-300 leading-relaxed font-medium">
-                            {generalPreview.dir_preview.summary}
+                            {tx(generalPreview.dir_preview.summary)}
                           </div>
                           <p className="text-slate-400 leading-relaxed text-[11px] pt-1 border-t border-slate-800/80">
-                            {generalPreview.dir_preview.description}
+                            {tx(generalPreview.dir_preview.description)}
                           </p>
                         </div>
 
@@ -1203,7 +1208,7 @@ export function App() {
                                 {t("安全與維護指引：")}
                               </span>
                               <span>
-                                {generalPreview.dir_preview.safety_warning}
+                                {tx(generalPreview.dir_preview.safety_warning)}
                               </span>
                             </div>
                           </div>
@@ -1291,7 +1296,7 @@ export function App() {
                             <ShieldAlert className="w-4 h-4 text-amber-400" />
                             <span>{t("網路磁碟機大圖保護已觸發")}</span>
                           </div>
-                          <p>{imagePreview.notice}</p>
+                          <p>{tx(imagePreview.notice)}</p>
                           {selectedEntry && (
                             <button
                               onClick={() =>
@@ -1373,7 +1378,7 @@ export function App() {
 
                         {generalPreview.notice && (
                           <div className="p-2.5 rounded-lg bg-amber-950/40 border border-amber-700/50 text-[11px] text-amber-200">
-                            {generalPreview.notice}
+                            {tx(generalPreview.notice)}
                           </div>
                         )}
 
@@ -1542,7 +1547,7 @@ export function App() {
                               <ShieldAlert className="w-4 h-4 text-amber-400" />
                               <span>{t("PDF 大檔保護已觸發")}</span>
                             </div>
-                            <p>{generalPreview.pdf_preview.notice}</p>
+                            <p>{tx(generalPreview.pdf_preview.notice)}</p>
                             {selectedEntry && (
                               <button
                                 onClick={() =>
@@ -1623,7 +1628,7 @@ export function App() {
 
                         {generalPreview.notice && (
                           <div className="p-2.5 rounded-lg bg-amber-950/40 border border-amber-700/50 text-[11px] text-amber-200">
-                            {generalPreview.notice}
+                            {tx(generalPreview.notice)}
                           </div>
                         )}
 
@@ -1747,7 +1752,7 @@ export function App() {
                                 {t("檔案特徵碼分析：")}
                               </span>
                               <span>
-                                {generalPreview.hex_preview.magic_description}
+                                {tx(generalPreview.hex_preview.magic_description)}
                               </span>
                             </div>
                           )}
@@ -1933,7 +1938,7 @@ export function App() {
                           <div key={cat.category} className="space-y-1">
                             <div className="flex justify-between">
                               <span className="text-slate-200 font-medium">
-                                {cat.label} ({t("{n} 檔", { n: cat.file_count })})
+                                {tx(cat.label)} ({t("{n} 檔", { n: cat.file_count })})
                               </span>
                               <span className="font-mono text-slate-300">
                                 {formatBytes(cat.size_bytes)} (
@@ -2296,7 +2301,7 @@ export function App() {
 
                   <div className="space-y-1.5 text-xs text-slate-400">
                     {lockReport.advisory_notes.map((n, idx) => (
-                      <div key={idx}>{n}</div>
+                      <div key={idx}>{tx(n)}</div>
                     ))}
                   </div>
 
@@ -2325,7 +2330,7 @@ export function App() {
                                 {lp.app_type}
                               </td>
                               <td className="py-2.5 px-3 text-slate-300">
-                                {lp.lock_reason}
+                                {tx(lp.lock_reason)}
                               </td>
                               <td className="py-2.5 px-3 text-right">
                                 <button
@@ -2465,7 +2470,7 @@ export function App() {
                 <div className="space-y-4">
                   {syncReport.network_advisory && (
                     <div className="p-3 rounded-xl bg-amber-950/60 border border-amber-700/60 text-xs text-amber-200">
-                      {syncReport.network_advisory}
+                      {tx(syncReport.network_advisory)}
                     </div>
                   )}
 
@@ -2615,7 +2620,7 @@ export function App() {
                         >
                           <div>
                             <div className="font-semibold text-white">
-                              {item.kind} — {item.description}
+                              {item.kind} — {tx(item.description)}
                             </div>
                             <div className="text-slate-400 font-mono">
                               {item.path} ({t("{n} 個檔案", { n: item.file_count })})
@@ -2695,11 +2700,11 @@ export function App() {
                         >
                           <div className="flex items-center justify-between">
                             <span className="font-bold text-white">
-                              {d.mount_point} ({d.name})
+                              {d.mount_point} ({tx(d.name)})
                             </span>
-                            <span className="text-xs">{d.health_badge}</span>
+                            <span className="text-xs">{tx(d.health_badge)}</span>
                           </div>
-                          <div className="text-slate-400">{d.note}</div>
+                          <div className="text-slate-400">{tx(d.note)}</div>
                         </div>
                       ))}
                     </div>
@@ -2752,7 +2757,7 @@ export function App() {
                             #{pd.index} {pd.path}
                           </div>
                           <div className="text-[11px] opacity-80 mt-0.5">
-                            {pd.note}
+                            {tx(pd.note)}
                           </div>
                         </div>
                       ))}
