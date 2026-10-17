@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  availableLocales,
+  detectLocale,
+  persistLocale,
+  translate,
+  type TranslateParams,
+} from './i18n';
+import {
   Activity,
   AlertTriangle,
   Archive,
@@ -83,6 +90,15 @@ const TREEMAP_COLORS = [
 ];
 
 export function App() {
+  const [locale, setLocale] = useState<string>(detectLocale);
+  const t = useCallback(
+    (key: string, params?: TranslateParams) => translate(locale, key, params),
+    [locale]
+  );
+  useEffect(() => {
+    document.documentElement.lang = locale;
+    persistLocale(locale);
+  }, [locale]);
   const [activeTab, setActiveTab] = useState<ModuleTab>('explorer');
   const [drives, setDrives] = useState<DriveInfo[]>([]);
   const [currentPath, setCurrentPath] = useState<string>('');
@@ -341,8 +357,8 @@ export function App() {
       setSyncExecResult(summary);
       notifyStatus(
         dryRun
-          ? '已完成 FreeFileSync 同步預演 (Dry-Run)，未實際修改磁碟檔案。'
-          : '已完成 FreeFileSync 檔案同步作業！'
+          ? t("已完成 FreeFileSync 同步預演 (Dry-Run)，未實際修改磁碟檔案。")
+          : t("已完成 FreeFileSync 檔案同步作業！")
       );
       await runSyncCompare();
     } catch (err) {
@@ -461,7 +477,7 @@ export function App() {
               </span>
             </div>
             <p className="text-xs text-slate-400">
-              檔案總管 · TreeSize · 工作管理員 · LockHunter · FreeFileSync · 電腦本體維運（支援網路磁碟有限功能）
+              {t("檔案總管 · TreeSize · 工作管理員 · LockHunter · FreeFileSync · 電腦本體維運（支援網路磁碟有限功能）")}
             </p>
           </div>
         </div>
@@ -469,12 +485,12 @@ export function App() {
         {/* 六大核心模組導覽 Tabs */}
         <nav className="flex flex-wrap items-center gap-1.5 bg-slate-950/80 p-1.5 rounded-xl border border-slate-800">
           {[
-            { id: 'explorer', label: '檔案總管', icon: Folder },
-            { id: 'treesize', label: 'TreeSize 空間分析', icon: PieChart },
-            { id: 'taskmgr', label: '工作管理員 & Port', icon: Activity },
-            { id: 'lockhunter', label: 'LockHunter 解鎖', icon: Unlock },
-            { id: 'sync', label: 'FreeFileSync 同步', icon: FolderSync },
-            { id: 'ops', label: '電腦本體維運中心', icon: Wrench },
+            { id: 'explorer', label: t("檔案總管"), icon: Folder },
+            { id: 'treesize', label: t("TreeSize 空間分析"), icon: PieChart },
+            { id: 'taskmgr', label: t("工作管理員 & Port"), icon: Activity },
+            { id: 'lockhunter', label: t("LockHunter 解鎖"), icon: Unlock },
+            { id: 'sync', label: t("FreeFileSync 同步"), icon: FolderSync },
+            { id: 'ops', label: t("電腦本體維運中心"), icon: Wrench },
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -494,6 +510,19 @@ export function App() {
             );
           })}
         </nav>
+        <select
+          value={locale}
+          onChange={(e) => setLocale(e.target.value)}
+          aria-label="Language"
+          title="Language"
+          className="text-xs bg-slate-950/80 border border-slate-800 rounded-lg px-2.5 py-2 text-slate-200 focus:outline-none focus:border-cyan-500"
+        >
+          {availableLocales.map((l) => (
+            <option key={l.code} value={l.code}>
+              {l.name}
+            </option>
+          ))}
+        </select>
       </header>
 
       {/* 全域狀態與錯誤提示列 */}
@@ -531,7 +560,7 @@ export function App() {
           <div className="flex items-center gap-2 font-semibold text-amber-300">
             <Network className="w-4 h-4" />
             <span>
-              🌐 網路磁碟機有限功能模式 (Network Drive Safe Mode) —{' '}
+              {t("🌐 網路磁碟機有限功能模式 (Network Drive Safe Mode) —")}{' '}
               {activeCapabilities.remote_unc_path ?? currentPath}
             </span>
           </div>
@@ -550,12 +579,12 @@ export function App() {
           <div>
             <div className="flex items-center justify-between mb-2.5">
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                儲存裝置與網路磁碟
+                {t("儲存裝置與網路磁碟")}
               </span>
               <button
                 onClick={() => keeperApi.getDrives().then(setDrives)}
                 className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
-                title="重新整理磁碟清單"
+                title={t("重新整理磁碟清單")}
               >
                 <RefreshCw className="w-3.5 h-3.5" />
               </button>
@@ -591,7 +620,7 @@ export function App() {
                             : 'bg-slate-800 text-slate-300'
                         }`}
                       >
-                        {isNet ? '🌐 網路磁碟 (有限功能)' : d.file_system}
+                        {isNet ? t("🌐 網路磁碟 (有限功能)") : d.file_system}
                       </span>
                     </div>
                     <div className="text-xs text-slate-400 truncate mb-2">
@@ -612,8 +641,8 @@ export function App() {
                       />
                     </div>
                     <div className="flex justify-between text-[11px] text-slate-400">
-                      <span>已用 {d.usage_percent.toFixed(1)}%</span>
-                      <span>可用 {formatBytes(d.available_bytes)}</span>
+                      <span>{t("已用 {pct}%", { pct: d.usage_percent.toFixed(1) })}</span>
+                      <span>{t("可用 {size}", { size: formatBytes(d.available_bytes) })}</span>
                     </div>
                   </button>
                 );
@@ -625,12 +654,12 @@ export function App() {
           <div className="border-t border-slate-800 pt-4">
             <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-300 mb-2">
               <Network className="w-4 h-4" />
-              <span>網路磁碟 (SMB/UNC) 權限檢測</span>
+              <span>{t("網路磁碟 (SMB/UNC) 權限檢測")}</span>
             </div>
             <p className="text-[11px] text-slate-400 mb-2">
-              輸入任何本機或遠端 UNC 路徑（如{' '}
+              {t("輸入任何本機或遠端 UNC 路徑（如")}{' '}
               <code className="text-amber-200">\\NAS\Share</code>
-              ），即時查驗系統套用的安全降級策略：
+              {t("），即時查驗系統套用的安全降級策略：")}
             </p>
             <div className="flex gap-1.5 mb-2">
               <input
@@ -638,20 +667,20 @@ export function App() {
                 value={probeUncInput}
                 onChange={(e) => setProbeUncInput(e.target.value)}
                 className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
-                placeholder="\\Server\Share 或 C:\"
+                placeholder={t("\\\\Server\\Share 或 C:\\")}
               />
               <button
                 onClick={() => runProbeCapabilities(probeUncInput)}
                 className="px-2.5 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30 text-xs font-medium shrink-0"
               >
-                檢測
+                {t("檢測")}
               </button>
             </div>
 
             {probedCaps && (
               <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-[11px] space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-400">識別類型：</span>
+                  <span className="text-slate-400">{t("識別類型：")}</span>
                   <span
                     className={`font-semibold ${
                       probedCaps.is_network_drive
@@ -660,39 +689,39 @@ export function App() {
                     }`}
                   >
                     {probedCaps.is_network_drive
-                      ? '🌐 網路磁碟 (有限功能)'
-                      : '💻 本機磁碟 (完整功能)'}
+                      ? t("🌐 網路磁碟 (有限功能)")
+                      : t("💻 本機磁碟 (完整功能)")}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-400">本機資源回收筒：</span>
+                  <span className="text-slate-400">{t("本機資源回收筒：")}</span>
                   <span>
-                    {probedCaps.supports_recycle_bin ? '✅ 支援' : '⚠️ 不支援 (直接刪除)'}
+                    {probedCaps.supports_recycle_bin ? t("✅ 支援") : t("⚠️ 不支援 (直接刪除)")}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-400">MFT 極速掃描：</span>
+                  <span className="text-slate-400">{t("MFT 極速掃描：")}</span>
                   <span>
                     {probedCaps.supports_mft_fast_scan
-                      ? '✅ 支援'
-                      : '⚠️ 停用 (受控執行緒)'}
+                      ? t("✅ 支援")
+                      : t("⚠️ 停用 (受控執行緒)")}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-400">LockHunter 範圍：</span>
+                  <span className="text-slate-400">{t("LockHunter 範圍：")}</span>
                   <span>
                     {probedCaps.lockhunter_scope === 'full_local'
-                      ? '✅ 完整本機行程'
-                      : '⚠️ 僅限本機 SMB 句柄'}
+                      ? t("✅ 完整本機行程")
+                      : t("⚠️ 僅限本機 SMB 句柄")}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-400">圖片自動預覽上限：</span>
+                  <span className="text-slate-400">{t("圖片自動預覽上限：")}</span>
                   <span>{formatBytes(probedCaps.max_auto_preview_bytes)}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-400">FreeFileSync 時間容差：</span>
-                  <span>{probedCaps.sync_timestamp_tolerance_secs} 秒</span>
+                  <span className="text-slate-400">{t("FreeFileSync 時間容差：")}</span>
+                  <span>{t("{n} 秒", { n: probedCaps.sync_timestamp_tolerance_secs })}</span>
                 </div>
               </div>
             )}
@@ -712,7 +741,7 @@ export function App() {
                   }
                   disabled={!listing?.parent_path}
                   className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200"
-                  title="回上一層目錄"
+                  title={t("回上一層目錄")}
                 >
                   <ArrowUp className="w-4 h-4" />
                 </button>
@@ -729,13 +758,13 @@ export function App() {
                     value={pathInput}
                     onChange={(e) => setPathInput(e.target.value)}
                     className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-cyan-500"
-                    placeholder="輸入本機路徑或 \\Server\Share 網路磁碟路徑..."
+                    placeholder={t("輸入本機路徑或 \\\\Server\\Share 網路磁碟路徑...")}
                   />
                   <button
                     type="submit"
                     className="px-3 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs"
                   >
-                    前往
+                    {t("前往")}
                   </button>
                 </form>
 
@@ -746,7 +775,7 @@ export function App() {
                     type="text"
                     value={searchFilter}
                     onChange={(e) => setSearchFilter(e.target.value)}
-                    placeholder="過濾檔案名稱..."
+                    placeholder={t("過濾檔案名稱...")}
                     className="bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 w-44"
                   />
                 </div>
@@ -760,7 +789,7 @@ export function App() {
                   }`}
                 >
                   <ImageIcon className="w-3.5 h-3.5" />
-                  僅顯示圖片 ({listing?.total_images ?? 0})
+                  {t("僅顯示圖片 ({n})", { n: listing?.total_images ?? 0 })}
                 </button>
 
                 {/* 跨模組快速聯動按鈕 */}
@@ -773,7 +802,7 @@ export function App() {
                   className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/30 text-xs"
                 >
                   <PieChart className="w-3.5 h-3.5" />
-                  分析此目錄空間
+                  {t("分析此目錄空間")}
                 </button>
 
                 <button
@@ -785,7 +814,7 @@ export function App() {
                   className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 text-xs"
                 >
                   <Unlock className="w-3.5 h-3.5" />
-                  檢查誰鎖住了此處
+                  {t("檢查誰鎖住了此處")}
                 </button>
               </div>
 
@@ -795,13 +824,15 @@ export function App() {
                 <div className="flex-1 min-w-0 min-h-0 overflow-y-auto p-3">
                   <div className="mb-2 flex items-center justify-between text-xs text-slate-400 px-2">
                     <span>
-                      共 {listing?.total_dirs ?? 0} 個資料夾、
-                      {listing?.total_files ?? 0} 個檔案（總計{' '}
-                      {formatBytes(listing?.total_size_bytes ?? 0)}）
+                      {t("共 {dirs} 個資料夾、{files} 個檔案（總計 {size}）", {
+                        dirs: listing?.total_dirs ?? 0,
+                        files: listing?.total_files ?? 0,
+                        size: formatBytes(listing?.total_size_bytes ?? 0),
+                      })}
                     </span>
                     {loading && (
                       <span className="text-cyan-400 animate-pulse">
-                        Rust 引擎讀取中...
+                        {t("Rust 引擎讀取中...")}
                       </span>
                     )}
                   </div>
@@ -810,16 +841,16 @@ export function App() {
                     <table className="w-full text-left border-collapse text-xs">
                       <thead>
                         <tr className="border-b border-slate-800 bg-slate-900/90 text-slate-400">
-                          <th className="py-2.5 px-3 font-medium">名稱</th>
-                          <th className="py-2.5 px-3 font-medium w-28">類型</th>
+                          <th className="py-2.5 px-3 font-medium">{t("名稱")}</th>
+                          <th className="py-2.5 px-3 font-medium w-28">{t("類型")}</th>
                           <th className="py-2.5 px-3 font-medium w-28 text-right">
-                            大小
+                            {t("大小")}
                           </th>
                           <th className="py-2.5 px-3 font-medium w-40">
-                            修改時間
+                            {t("修改時間")}
                           </th>
                           <th className="py-2.5 px-3 font-medium w-44 text-right">
-                            快速操作
+                            {t("快速操作")}
                           </th>
                         </tr>
                       </thead>
@@ -865,7 +896,7 @@ export function App() {
                                 </span>
                                 {item.is_image && (
                                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-pink-500/20 text-pink-300 border border-pink-500/30">
-                                    圖片
+                                    {t("圖片")}
                                   </span>
                                 )}
                                 {item.extension === 'pdf' && (
@@ -876,14 +907,14 @@ export function App() {
                                 {(item.extension === 'zip' ||
                                   item.extension === 'jar') && (
                                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                                    ZIP 壓縮
+                                    {t("ZIP 壓縮")}
                                   </span>
                                 )}
                               </td>
                               <td className="py-2 px-3 text-slate-400">
                                 {item.is_dir
-                                  ? '資料夾'
-                                  : item.extension.toUpperCase() || '檔案'}
+                                  ? t("資料夾")
+                                  : item.extension.toUpperCase() || t("檔案")}
                               </td>
                               <td className="py-2 px-3 text-right font-mono text-slate-300">
                                 {item.is_dir
@@ -891,7 +922,7 @@ export function App() {
                                   : formatBytes(item.size_bytes)}
                               </td>
                               <td className="py-2 px-3 text-slate-400">
-                                {formatTimestamp(item.modified_unix)}
+                                {formatTimestamp(item.modified_unix, locale)}
                               </td>
                               <td
                                 className="py-2 px-3 text-right space-x-1"
@@ -902,7 +933,7 @@ export function App() {
                                     onClick={() => loadDirectory(item.path)}
                                     className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200"
                                   >
-                                    開啟
+                                    {t("開啟")}
                                   </button>
                                 )}
                                 <button
@@ -912,16 +943,16 @@ export function App() {
                                     runLockHunter(item.path);
                                   }}
                                   className="px-2 py-1 rounded bg-amber-500/15 hover:bg-amber-500/30 text-amber-300"
-                                  title="使用 LockHunter 查詢誰鎖住了此項目"
+                                  title={t("使用 LockHunter 查詢誰鎖住了此項目")}
                                 >
-                                  解鎖
+                                  {t("解鎖")}
                                 </button>
                                 <button
                                   onClick={() => handleDeleteEntry(item)}
                                   className="px-2 py-1 rounded bg-rose-500/15 hover:bg-rose-500/30 text-rose-300"
-                                  title="刪除項目"
+                                  title={t("刪除項目")}
                                 >
-                                  刪除
+                                  {t("刪除")}
                                 </button>
                               </td>
                             </tr>
@@ -939,42 +970,42 @@ export function App() {
                       {generalPreview?.preview_kind === 'directory' ? (
                         <>
                           <Folder className="w-4 h-4 text-amber-400" />
-                          <span>資料夾說明與概況</span>
+                          <span>{t("資料夾說明與概況")}</span>
                         </>
                       ) : generalPreview?.preview_kind === 'image' ? (
                         <>
                           <ImageIcon className="w-4 h-4 text-pink-400" />
-                          <span>圖片影像預覽</span>
+                          <span>{t("圖片影像預覽")}</span>
                         </>
                       ) : generalPreview?.preview_kind === 'text' ? (
                         <>
                           <FileCode className="w-4 h-4 text-cyan-400" />
-                          <span>純文字與程式碼預覽</span>
+                          <span>{t("純文字與程式碼預覽")}</span>
                         </>
                       ) : generalPreview?.preview_kind === 'pdf' ? (
                         <>
                           <FileText className="w-4 h-4 text-rose-400" />
-                          <span>PDF 文件預覽</span>
+                          <span>{t("PDF 文件預覽")}</span>
                         </>
                       ) : generalPreview?.preview_kind === 'zip' ? (
                         <>
                           <Archive className="w-4 h-4 text-purple-400" />
-                          <span>ZIP 壓縮檔目錄清單</span>
+                          <span>{t("ZIP 壓縮檔目錄清單")}</span>
                         </>
                       ) : generalPreview?.preview_kind === 'media' ? (
                         <>
                           <Film className="w-4 h-4 text-teal-400" />
-                          <span>影音媒體播放器</span>
+                          <span>{t("影音媒體播放器")}</span>
                         </>
                       ) : generalPreview?.preview_kind === 'hex' ? (
                         <>
                           <Binary className="w-4 h-4 text-slate-400" />
-                          <span>二進位 Hex Dump 檢視</span>
+                          <span>{t("二進位 Hex Dump 檢視")}</span>
                         </>
                       ) : (
                         <>
                           <Eye className="w-4 h-4 text-cyan-400" />
-                          <span>項目預覽與詳細資訊</span>
+                          <span>{t("項目預覽與詳細資訊")}</span>
                         </>
                       )}
                     </div>
@@ -989,7 +1020,7 @@ export function App() {
                                 setImageZoom((z) => Math.max(50, z - 25))
                               }
                               className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300"
-                              title="縮小圖片"
+                              title={t("縮小圖片")}
                             >
                               <ZoomOut className="w-3.5 h-3.5" />
                             </button>
@@ -1001,7 +1032,7 @@ export function App() {
                                 setImageZoom((z) => Math.min(200, z + 25))
                               }
                               className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300"
-                              title="放大圖片"
+                              title={t("放大圖片")}
                             >
                               <ZoomIn className="w-3.5 h-3.5" />
                             </button>
@@ -1027,9 +1058,9 @@ export function App() {
                                 {textViewMode === 'raw'
                                   ? generalPreview.text_preview.syntax ===
                                     'markdown'
-                                    ? '排版預覽'
-                                    : '表格預覽'
-                                  : '原始碼'}
+                                    ? t("排版預覽")
+                                    : t("表格預覽")
+                                  : t("原始碼")}
                               </button>
                             )}
                             <button
@@ -1049,19 +1080,19 @@ export function App() {
                                 }
                               }}
                               className="flex items-center gap-1 px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-200 border border-slate-700"
-                              title="複製文字內容"
+                              title={t("複製文字內容")}
                             >
                               {copiedText ? (
                                 <>
                                   <Check className="w-3 h-3 text-emerald-400" />
                                   <span className="text-emerald-400">
-                                    已複製
+                                    {t("已複製")}
                                   </span>
                                 </>
                               ) : (
                                 <>
                                   <Copy className="w-3 h-3 text-slate-400" />
-                                  <span>複製</span>
+                                  <span>{t("複製")}</span>
                                 </>
                               )}
                             </button>
@@ -1078,10 +1109,10 @@ export function App() {
                               );
                             }}
                             className="flex items-center gap-1 px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-rose-300 border border-slate-700"
-                            title="另開新視窗全螢幕閱讀"
+                            title={t("另開新視窗全螢幕閱讀")}
                           >
                             <ExternalLink className="w-3 h-3" />
-                            <span>全螢幕</span>
+                            <span>{t("全螢幕")}</span>
                           </button>
                         )}
                     </div>
@@ -1091,7 +1122,7 @@ export function App() {
                   {previewLoading && (
                     <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800/80 text-xs text-cyan-400 animate-pulse flex items-center gap-2">
                       <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>正在讀取並解析項目預覽...</span>
+                      <span>{t("正在讀取並解析項目預覽...")}</span>
                     </div>
                   )}
 
@@ -1143,7 +1174,7 @@ export function App() {
                             {generalPreview.dir_preview.is_system_or_known && (
                               <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center gap-1">
                                 <ShieldCheck className="w-3 h-3" />
-                                系統/常見目錄
+                                {t("系統/常見目錄")}
                               </span>
                             )}
                           </div>
@@ -1153,7 +1184,7 @@ export function App() {
                         <div className="p-3.5 rounded-xl bg-slate-950/90 border border-slate-800 space-y-2 text-xs">
                           <div className="font-semibold text-slate-200 flex items-center gap-1.5">
                             <BookOpen className="w-4 h-4 text-cyan-400" />
-                            <span>目錄功能與用途介紹</span>
+                            <span>{t("目錄功能與用途介紹")}</span>
                           </div>
                           <div className="text-slate-300 leading-relaxed font-medium">
                             {generalPreview.dir_preview.summary}
@@ -1169,7 +1200,7 @@ export function App() {
                             <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                             <div className="leading-relaxed">
                               <span className="font-semibold block mb-0.5">
-                                安全與維護指引：
+                                {t("安全與維護指引：")}
                               </span>
                               <span>
                                 {generalPreview.dir_preview.safety_warning}
@@ -1182,7 +1213,7 @@ export function App() {
                         <div className="grid grid-cols-3 gap-2">
                           <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-center">
                             <div className="text-[11px] text-slate-400">
-                              直屬子資料夾
+                              {t("直屬子資料夾")}
                             </div>
                             <div className="font-semibold text-white text-sm mt-0.5">
                               {generalPreview.dir_preview.direct_subdirs_count}
@@ -1190,7 +1221,7 @@ export function App() {
                           </div>
                           <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-center">
                             <div className="text-[11px] text-slate-400">
-                              直屬檔案數
+                              {t("直屬檔案數")}
                             </div>
                             <div className="font-semibold text-white text-sm mt-0.5">
                               {generalPreview.dir_preview.direct_files_count}
@@ -1198,7 +1229,7 @@ export function App() {
                           </div>
                           <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-center">
                             <div className="text-[11px] text-slate-400">
-                              直屬大小
+                              {t("直屬大小")}
                             </div>
                             <div className="font-semibold text-cyan-300 text-xs mt-1">
                               {formatBytes(
@@ -1217,7 +1248,7 @@ export function App() {
                             className="w-full py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs transition-colors flex items-center justify-center gap-1.5"
                           >
                             <Folder className="w-4 h-4" />
-                            進入此資料夾瀏覽
+                            {t("進入此資料夾瀏覽")}
                           </button>
                           <div className="grid grid-cols-2 gap-2">
                             <button
@@ -1231,7 +1262,7 @@ export function App() {
                               className="py-1.5 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/30 text-xs flex items-center justify-center gap-1"
                             >
                               <PieChart className="w-3.5 h-3.5" />
-                              分析空間佔用
+                              {t("分析空間佔用")}
                             </button>
                             <button
                               onClick={() => {
@@ -1244,7 +1275,7 @@ export function App() {
                               className="py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 text-xs flex items-center justify-center gap-1"
                             >
                               <Unlock className="w-3.5 h-3.5" />
-                              檢查鎖定狀態
+                              {t("檢查鎖定狀態")}
                             </button>
                           </div>
                         </div>
@@ -1258,7 +1289,7 @@ export function App() {
                         <div className="p-4 rounded-xl bg-amber-950/50 border border-amber-700/60 text-xs text-amber-200 space-y-3">
                           <div className="font-semibold flex items-center gap-1.5">
                             <ShieldAlert className="w-4 h-4 text-amber-400" />
-                            <span>網路磁碟機大圖保護已觸發</span>
+                            <span>{t("網路磁碟機大圖保護已觸發")}</span>
                           </div>
                           <p>{imagePreview.notice}</p>
                           {selectedEntry && (
@@ -1268,7 +1299,7 @@ export function App() {
                               }
                               className="w-full py-2 rounded-lg bg-amber-500 text-slate-950 font-semibold hover:bg-amber-400"
                             >
-                              強制跨網路載入原圖預覽
+                              {t("強制跨網路載入原圖預覽")}
                             </button>
                           )}
                         </div>
@@ -1293,21 +1324,21 @@ export function App() {
                           {imagePreview.name}
                         </div>
                         <div className="flex justify-between text-slate-400">
-                          <span>解析度尺寸：</span>
+                          <span>{t("解析度尺寸：")}</span>
                           <span className="text-slate-200 font-mono">
                             {imagePreview.width} × {imagePreview.height} px (
                             {imagePreview.aspect_ratio})
                           </span>
                         </div>
                         <div className="flex justify-between text-slate-400">
-                          <span>影像格式 / 色彩：</span>
+                          <span>{t("影像格式 / 色彩：")}</span>
                           <span className="text-slate-200">
                             {imagePreview.format_name} (
                             {imagePreview.color_type})
                           </span>
                         </div>
                         <div className="flex justify-between text-slate-400">
-                          <span>檔案大小：</span>
+                          <span>{t("檔案大小：")}</span>
                           <span className="text-slate-200 font-mono">
                             {formatBytes(imagePreview.file_size_bytes)}
                           </span>
@@ -1330,10 +1361,12 @@ export function App() {
                             </span>
                           </div>
                           <div className="flex justify-between text-slate-400 pt-0.5">
-                            <span>行數與大小：</span>
+                            <span>{t("行數與大小：")}</span>
                             <span className="text-slate-200 font-mono">
-                              {generalPreview.text_preview.total_lines} 行 ·{' '}
-                              {formatBytes(generalPreview.file_size_bytes)}
+                              {t("{lines} 行 · {size}", {
+                                lines: generalPreview.text_preview.total_lines,
+                                size: formatBytes(generalPreview.file_size_bytes),
+                              })}
                             </span>
                           </div>
                         </div>
@@ -1494,7 +1527,7 @@ export function App() {
                             </span>
                           </div>
                           <div className="flex justify-between text-slate-400">
-                            <span>文件大小：</span>
+                            <span>{t("文件大小：")}</span>
                             <span className="text-slate-200 font-mono">
                               {formatBytes(
                                 generalPreview.pdf_preview.file_size_bytes
@@ -1507,7 +1540,7 @@ export function App() {
                           <div className="p-4 rounded-xl bg-amber-950/40 border border-amber-700/60 text-xs text-amber-200 space-y-3">
                             <div className="font-semibold flex items-center gap-1.5">
                               <ShieldAlert className="w-4 h-4 text-amber-400" />
-                              <span>PDF 大檔保護已觸發</span>
+                              <span>{t("PDF 大檔保護已觸發")}</span>
                             </div>
                             <p>{generalPreview.pdf_preview.notice}</p>
                             {selectedEntry && (
@@ -1517,7 +1550,7 @@ export function App() {
                                 }
                                 className="w-full py-2 rounded-lg bg-rose-500 text-white font-semibold hover:bg-rose-400"
                               >
-                                強制載入 PDF 原文預覽
+                                {t("強制載入 PDF 原文預覽")}
                               </button>
                             )}
                           </div>
@@ -1545,14 +1578,16 @@ export function App() {
                           </div>
                           <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-800 text-[11px]">
                             <div>
-                              <span className="text-slate-400">項目總數：</span>
+                              <span className="text-slate-400">{t("項目總數：")}</span>
                               <span className="text-slate-200 font-medium ml-1">
-                                {generalPreview.zip_preview.total_files} 檔案 ·{' '}
-                                {generalPreview.zip_preview.total_dirs} 目錄
+                                {t("{files} 檔案 · {dirs} 目錄", {
+                                  files: generalPreview.zip_preview.total_files,
+                                  dirs: generalPreview.zip_preview.total_dirs,
+                                })}
                               </span>
                             </div>
                             <div>
-                              <span className="text-slate-400">整體節省：</span>
+                              <span className="text-slate-400">{t("整體節省：")}</span>
                               <span className="text-emerald-400 font-bold ml-1">
                                 {generalPreview.zip_preview.overall_ratio.toFixed(
                                   1
@@ -1561,7 +1596,7 @@ export function App() {
                               </span>
                             </div>
                             <div>
-                              <span className="text-slate-400">原始總量：</span>
+                              <span className="text-slate-400">{t("原始總量：")}</span>
                               <span className="text-slate-300 font-mono ml-1">
                                 {formatBytes(
                                   generalPreview.zip_preview
@@ -1570,7 +1605,7 @@ export function App() {
                               </span>
                             </div>
                             <div>
-                              <span className="text-slate-400">壓縮大小：</span>
+                              <span className="text-slate-400">{t("壓縮大小：")}</span>
                               <span className="text-purple-300 font-mono ml-1">
                                 {formatBytes(
                                   generalPreview.zip_preview
@@ -1581,7 +1616,7 @@ export function App() {
                           </div>
                           {generalPreview.zip_preview.comment && (
                             <div className="text-[10px] text-slate-400 italic pt-1">
-                              註解：{generalPreview.zip_preview.comment}
+                              {t("註解：{comment}", { comment: generalPreview.zip_preview.comment })}
                             </div>
                           )}
                         </div>
@@ -1597,12 +1632,12 @@ export function App() {
                           <table className="w-full text-[11px] text-left border-collapse">
                             <thead>
                               <tr className="bg-slate-900 text-slate-400 border-b border-slate-800 sticky top-0">
-                                <th className="p-2 font-medium">內部名稱</th>
+                                <th className="p-2 font-medium">{t("內部名稱")}</th>
                                 <th className="p-2 font-medium text-right w-20">
-                                  原始大小
+                                  {t("原始大小")}
                                 </th>
                                 <th className="p-2 font-medium text-right w-16">
-                                  壓縮率
+                                  {t("壓縮率")}
                                 </th>
                               </tr>
                             </thead>
@@ -1651,17 +1686,17 @@ export function App() {
                             {generalPreview.name}
                           </div>
                           <div className="flex justify-between text-slate-400">
-                            <span>媒體類型 / 格式：</span>
+                            <span>{t("媒體類型 / 格式：")}</span>
                             <span className="text-teal-300 font-medium">
                               {generalPreview.media_preview.media_type ===
                               'audio'
-                                ? '音訊檔案'
-                                : '視訊影片'}{' '}
+                                ? t("音訊檔案")
+                                : t("視訊影片")}{' '}
                               ({generalPreview.media_preview.format})
                             </span>
                           </div>
                           <div className="flex justify-between text-slate-400">
-                            <span>檔案大小：</span>
+                            <span>{t("檔案大小：")}</span>
                             <span className="text-slate-200 font-mono">
                               {formatBytes(generalPreview.file_size_bytes)}
                             </span>
@@ -1701,7 +1736,7 @@ export function App() {
                             {generalPreview.name}
                           </div>
                           <div className="flex justify-between text-slate-400">
-                            <span>檔案大小：</span>
+                            <span>{t("檔案大小：")}</span>
                             <span className="text-slate-200 font-mono">
                               {formatBytes(generalPreview.file_size_bytes)}
                             </span>
@@ -1709,7 +1744,7 @@ export function App() {
                           {generalPreview.hex_preview.magic_description && (
                             <div className="p-2 rounded bg-cyan-950/40 border border-cyan-800/60 text-[11px] text-cyan-200">
                               <span className="font-semibold block mb-0.5">
-                                檔案特徵碼分析：
+                                {t("檔案特徵碼分析：")}
                               </span>
                               <span>
                                 {generalPreview.hex_preview.magic_description}
@@ -1756,11 +1791,10 @@ export function App() {
                     <div className="p-6 rounded-xl border border-dashed border-slate-800 text-center text-xs text-slate-400 space-y-2">
                       <Folder className="w-8 h-8 text-slate-600 mx-auto" />
                       <p>
-                        從左側列表點選任何資料夾或檔案，即可檢視即時預覽。
+                        {t("從左側列表點選任何資料夾或檔案，即可檢視即時預覽。")}
                       </p>
                       <p className="text-[11px] text-slate-500">
-                        支援系統與常見資料夾詳細說明、圖片、純文字程式碼、PDF
-                        文件、ZIP 壓縮檔、影音媒體與二進位 Hex Dump。
+                        {t("支援系統與常見資料夾詳細說明、圖片、純文字程式碼、PDF 文件、ZIP 壓縮檔、影音媒體與二進位 Hex Dump。")}
                       </p>
                     </div>
                   )}
@@ -1777,7 +1811,7 @@ export function App() {
                         className="mt-0.5"
                       />
                       <span>
-                        我了解網路磁碟機不支援本機資源回收筒，允許在網路磁碟上執行永久刪除。
+                        {t("我了解網路磁碟機不支援本機資源回收筒，允許在網路磁碟上執行永久刪除。")}
                       </span>
                     </label>
                   )}
@@ -1797,33 +1831,33 @@ export function App() {
                     value={treeSizePath}
                     onChange={(e) => setTreeSizePath(e.target.value)}
                     className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-100"
-                    placeholder="輸入要分析空間的目錄路徑..."
+                    placeholder={t("輸入要分析空間的目錄路徑...")}
                   />
                   <button
                     onClick={() => runTreeSize()}
                     className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs flex items-center gap-1.5"
                   >
                     <PieChart className="w-4 h-4" />
-                    立即掃描分析
+                    {t("立即掃描分析")}
                   </button>
                 </div>
 
                 {treeSizeReport && (
                   <div className="flex items-center gap-4 text-xs">
                     <div>
-                      <span className="text-slate-400">總容量：</span>
+                      <span className="text-slate-400">{t("總容量：")}</span>
                       <span className="font-bold text-cyan-300">
                         {formatBytes(treeSizeReport.total_size_bytes)}
                       </span>
                     </div>
                     <div>
-                      <span className="text-slate-400">檔案數：</span>
+                      <span className="text-slate-400">{t("檔案數：")}</span>
                       <span className="font-semibold text-white">
                         {treeSizeReport.total_files.toLocaleString()}
                       </span>
                     </div>
                     <div>
-                      <span className="text-slate-400">耗時：</span>
+                      <span className="text-slate-400">{t("耗時：")}</span>
                       <span className="font-mono text-emerald-300">
                         {treeSizeReport.scan_duration_ms} ms
                       </span>
@@ -1839,12 +1873,13 @@ export function App() {
                     <div className="flex items-center justify-between">
                       <h3 className="text-sm font-semibold text-white flex items-center gap-2">
                         <Layers className="w-4 h-4 text-cyan-400" />
-                        互動式 Treemap 空間佔比矩形圖（點擊子資料夾可下鑽分析）
+                        {t("互動式 Treemap 空間佔比矩形圖（點擊子資料夾可下鑽分析）")}
                       </h3>
                       {treeSizeReport.capabilities.is_network_drive && (
                         <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                          🌐 網路磁碟受控掃描 (最大深度{' '}
-                          {treeSizeReport.capabilities.max_scan_depth} 層)
+                          {t("🌐 網路磁碟受控掃描 (最大深度 {depth} 層)", {
+                            depth: treeSizeReport.capabilities.max_scan_depth,
+                          })}
                         </span>
                       )}
                     </div>
@@ -1879,8 +1914,7 @@ export function App() {
                               </span>
                             </div>
                             <div className="text-xs font-mono text-white/90 mt-2">
-                              {formatBytes(node.size_bytes)} ({node.file_count}{' '}
-                              檔)
+                              {formatBytes(node.size_bytes)} ({t("{n} 檔", { n: node.file_count })})
                             </div>
                           </button>
                         );
@@ -1892,14 +1926,14 @@ export function App() {
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                     <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 space-y-3">
                       <h3 className="text-sm font-semibold text-white">
-                        依檔案類型空間分布
+                        {t("依檔案類型空間分布")}
                       </h3>
                       <div className="space-y-2.5 text-xs">
                         {treeSizeReport.category_breakdown.map((cat) => (
                           <div key={cat.category} className="space-y-1">
                             <div className="flex justify-between">
                               <span className="text-slate-200 font-medium">
-                                {cat.label} ({cat.file_count} 檔)
+                                {cat.label} ({t("{n} 檔", { n: cat.file_count })})
                               </span>
                               <span className="font-mono text-slate-300">
                                 {formatBytes(cat.size_bytes)} (
@@ -1921,7 +1955,7 @@ export function App() {
 
                     <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 space-y-3">
                       <h3 className="text-sm font-semibold text-white">
-                        Top 20 巨型檔案排行榜
+                        {t("Top 20 巨型檔案排行榜")}
                       </h3>
                       <div className="space-y-1.5 max-h-72 overflow-y-auto text-xs">
                         {treeSizeReport.largest_files.map((f) => (
@@ -1958,7 +1992,7 @@ export function App() {
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800">
                     <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-                      <span>CPU 總負載</span>
+                      <span>{t("CPU 總負載")}</span>
                       <Cpu className="w-4 h-4 text-cyan-400" />
                     </div>
                     <div className="text-2xl font-bold text-white">
@@ -1971,7 +2005,7 @@ export function App() {
 
                   <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800">
                     <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-                      <span>實體記憶體 (RAM)</span>
+                      <span>{t("實體記憶體 (RAM)")}</span>
                       <Database className="w-4 h-4 text-indigo-400" />
                     </div>
                     <div className="text-2xl font-bold text-white">
@@ -1990,24 +2024,24 @@ export function App() {
 
                   <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800">
                     <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-                      <span>活躍處理程序</span>
+                      <span>{t("活躍處理程序")}</span>
                       <Activity className="w-4 h-4 text-emerald-400" />
                     </div>
                     <div className="text-2xl font-bold text-white">
                       {sysSnapshot.total_processes}
                     </div>
                     <div className="text-[11px] text-slate-400 mt-1">
-                      監聽連接埠：{ports.length} 個
+                      {t("監聽連接埠：{n} 個", { n: ports.length })}
                     </div>
                   </div>
 
                   <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800">
                     <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-                      <span>系統連續運作時間</span>
+                      <span>{t("系統連續運作時間")}</span>
                       <RefreshCw className="w-4 h-4 text-amber-400" />
                     </div>
                     <div className="text-lg font-bold text-white">
-                      {formatUptime(sysSnapshot.uptime_secs)}
+                      {formatUptime(sysSnapshot.uptime_secs, t)}
                     </div>
                     <div className="text-[11px] text-slate-400 truncate mt-1">
                       {sysSnapshot.host_name} · {sysSnapshot.os_version}
@@ -2027,7 +2061,7 @@ export function App() {
                         : 'bg-slate-900 text-slate-300 border border-slate-800'
                     }`}
                   >
-                    處理程序清單 (Processes)
+                    {t("處理程序清單 (Processes)")}
                   </button>
                   <button
                     onClick={() => setTaskSubTab('ports')}
@@ -2037,7 +2071,7 @@ export function App() {
                         : 'bg-slate-900 text-slate-300 border border-slate-800'
                     }`}
                   >
-                    🔌 Port 連接埠佔用獵人 ({ports.length})
+                    {t("🔌 Port 連接埠佔用獵人 ({n})", { n: ports.length })}
                   </button>
                 </div>
 
@@ -2046,7 +2080,7 @@ export function App() {
                     type="text"
                     value={taskSearch}
                     onChange={(e) => setTaskSearch(e.target.value)}
-                    placeholder="搜尋 Process 名稱、PID 或 Port (如 8080)..."
+                    placeholder={t("搜尋 Process 名稱、PID 或 Port (如 8080)...")}
                     className="bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-100 w-72"
                   />
                   <button
@@ -2054,7 +2088,7 @@ export function App() {
                     className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 flex items-center gap-1.5"
                   >
                     <RefreshCw className="w-3.5 h-3.5" />
-                    重新整理
+                    {t("重新整理")}
                   </button>
                 </div>
               </div>
@@ -2065,11 +2099,11 @@ export function App() {
                     <thead>
                       <tr className="bg-slate-900 border-b border-slate-800 text-slate-400">
                         <th className="py-2.5 px-3">PID</th>
-                        <th className="py-2.5 px-3">處理程序名稱</th>
+                        <th className="py-2.5 px-3">{t("處理程序名稱")}</th>
                         <th className="py-2.5 px-3 text-right">CPU %</th>
-                        <th className="py-2.5 px-3 text-right">記憶體</th>
-                        <th className="py-2.5 px-3">執行檔路徑</th>
-                        <th className="py-2.5 px-3 text-right">操作</th>
+                        <th className="py-2.5 px-3 text-right">{t("記憶體")}</th>
+                        <th className="py-2.5 px-3">{t("執行檔路徑")}</th>
+                        <th className="py-2.5 px-3 text-right">{t("操作")}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60">
@@ -2107,7 +2141,7 @@ export function App() {
                                 onClick={() => handleKillProcess(proc.pid)}
                                 className="px-2.5 py-1 rounded bg-rose-500/20 hover:bg-rose-500/40 text-rose-300"
                               >
-                                終止行程
+                                {t("終止行程")}
                               </button>
                             </td>
                           </tr>
@@ -2120,12 +2154,12 @@ export function App() {
                   <table className="w-full text-left text-xs">
                     <thead>
                       <tr className="bg-slate-900 border-b border-slate-800 text-slate-400">
-                        <th className="py-2.5 px-3">協定</th>
-                        <th className="py-2.5 px-3">本機 Port</th>
-                        <th className="py-2.5 px-3">本機位址</th>
-                        <th className="py-2.5 px-3">狀態</th>
-                        <th className="py-2.5 px-3">PID & 佔用程式</th>
-                        <th className="py-2.5 px-3 text-right">釋放連接埠</th>
+                        <th className="py-2.5 px-3">{t("協定")}</th>
+                        <th className="py-2.5 px-3">{t("本機 Port")}</th>
+                        <th className="py-2.5 px-3">{t("本機位址")}</th>
+                        <th className="py-2.5 px-3">{t("狀態")}</th>
+                        <th className="py-2.5 px-3">{t("PID & 佔用程式")}</th>
+                        <th className="py-2.5 px-3 text-right">{t("釋放連接埠")}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60">
@@ -2170,7 +2204,7 @@ export function App() {
                                   onClick={() => handleKillProcess(pt.pid)}
                                   className="px-2.5 py-1 rounded bg-rose-500/20 hover:bg-rose-500/40 text-rose-300"
                                 >
-                                  釋放 Port (Kill)
+                                  {t("釋放 Port (Kill)")}
                                 </button>
                               )}
                             </td>
@@ -2189,21 +2223,21 @@ export function App() {
               <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 space-y-3">
                 <h2 className="text-sm font-semibold text-white flex items-center gap-2">
                   <Unlock className="w-4 h-4 text-amber-400" />
-                  LockHunter 檔案與資料夾佔用偵測 (Windows Restart Manager + 行程句柄分析)
+                  {t("LockHunter 檔案與資料夾佔用偵測 (Windows Restart Manager + 行程句柄分析)")}
                 </h2>
                 <div className="flex gap-2">
                   <input
                     type="text"
                     value={lockTargetPath}
                     onChange={(e) => setLockTargetPath(e.target.value)}
-                    placeholder="輸入無法刪除或移動的檔案/資料夾路徑..."
+                    placeholder={t("輸入無法刪除或移動的檔案/資料夾路徑...")}
                     className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-100"
                   />
                   <button
                     onClick={() => runLockHunter()}
                     className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-xs"
                   >
-                    掃描佔用行程
+                    {t("掃描佔用行程")}
                   </button>
                 </div>
               </div>
@@ -2220,8 +2254,8 @@ export function App() {
                         )}
                         <span className="font-semibold text-sm text-white">
                           {lockReport.is_locked
-                            ? `發現 ${lockReport.locking_processes.length} 個處理程序正在佔用此路徑`
-                            : '目前未偵測到任何本機行程鎖定此路徑，可安全操作'}
+                            ? t("發現 {n} 個處理程序正在佔用此路徑", { n: lockReport.locking_processes.length })
+                            : t("目前未偵測到任何本機行程鎖定此路徑，可安全操作")}
                         </span>
                         <span
                           className={`text-xs px-2 py-0.5 rounded-full ${
@@ -2231,12 +2265,12 @@ export function App() {
                           }`}
                         >
                           {lockReport.scope === 'local_process_only'
-                            ? '🌐 網路磁碟：僅限本機行程範圍'
-                            : '💻 本機完整支援'}
+                            ? t("🌐 網路磁碟：僅限本機行程範圍")
+                            : t("💻 本機完整支援")}
                         </span>
                       </div>
                       <div className="text-xs text-slate-400">
-                        已檢查檔案數：{lockReport.scanned_files_count} 個
+                        {t("已檢查檔案數：{n} 個", { n: lockReport.scanned_files_count })}
                       </div>
                     </div>
 
@@ -2255,8 +2289,8 @@ export function App() {
                       className="px-3.5 py-2 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-200 hover:bg-rose-500/30 disabled:opacity-40 disabled:cursor-not-allowed text-xs"
                     >
                       {lockReport.capabilities.supports_boot_delete
-                        ? '排程於下次重開機時強制刪除'
-                        : '🌐 網路磁碟不支援重開機刪除'}
+                        ? t("排程於下次重開機時強制刪除")
+                        : t("🌐 網路磁碟不支援重開機刪除")}
                     </button>
                   </div>
 
@@ -2272,10 +2306,10 @@ export function App() {
                         <thead>
                           <tr className="bg-slate-900 border-b border-slate-800 text-slate-400">
                             <th className="py-2.5 px-3">PID</th>
-                            <th className="py-2.5 px-3">行程名稱</th>
-                            <th className="py-2.5 px-3">類型</th>
-                            <th className="py-2.5 px-3">鎖定原因</th>
-                            <th className="py-2.5 px-3 text-right">解鎖動作</th>
+                            <th className="py-2.5 px-3">{t("行程名稱")}</th>
+                            <th className="py-2.5 px-3">{t("類型")}</th>
+                            <th className="py-2.5 px-3">{t("鎖定原因")}</th>
+                            <th className="py-2.5 px-3 text-right">{t("解鎖動作")}</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800/60">
@@ -2301,7 +2335,7 @@ export function App() {
                                   }}
                                   className="px-3 py-1 rounded-lg bg-rose-500 text-white font-semibold hover:bg-rose-400"
                                 >
-                                  強制終止並解鎖
+                                  {t("強制終止並解鎖")}
                                 </button>
                               </td>
                             </tr>
@@ -2322,7 +2356,7 @@ export function App() {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <h2 className="text-sm font-semibold text-white flex items-center gap-2">
                     <FolderSync className="w-4 h-4 text-cyan-400" />
-                    FreeFileSync 雙目錄差異比對與智慧同步（內建網路磁碟 2 秒 SMB 時間容差）
+                    {t("FreeFileSync 雙目錄差異比對與智慧同步（內建網路磁碟 2 秒 SMB 時間容差）")}
                   </h2>
 
                   <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -2334,10 +2368,10 @@ export function App() {
                       className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-slate-200"
                     >
                       <option value="time_and_size">
-                        比對模式：修改時間 + 檔案大小 (極速)
+                        {t("比對模式：修改時間 + 檔案大小 (極速)")}
                       </option>
                       <option value="blake3_hash">
-                        比對模式：BLAKE3 內容雜湊 (精確驗證)
+                        {t("比對模式：BLAKE3 內容雜湊 (精確驗證)")}
                       </option>
                     </select>
 
@@ -2349,13 +2383,13 @@ export function App() {
                       className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-slate-200"
                     >
                       <option value="mirror">
-                        同步策略：鏡像 (Mirror 左 → 右)
+                        {t("同步策略：鏡像 (Mirror 左 → 右)")}
                       </option>
                       <option value="update">
-                        同步策略：更新 (Update 左 → 右，不刪除)
+                        {t("同步策略：更新 (Update 左 → 右，不刪除)")}
                       </option>
                       <option value="two_way">
-                        同步策略：雙向互補 (Two-Way)
+                        {t("同步策略：雙向互補 (Two-Way)")}
                       </option>
                     </select>
                   </div>
@@ -2364,7 +2398,7 @@ export function App() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs text-slate-400 mb-1">
-                      左側來源目錄 (Source / Left)
+                      {t("左側來源目錄 (Source / Left)")}
                     </label>
                     <input
                       type="text"
@@ -2375,7 +2409,7 @@ export function App() {
                   </div>
                   <div>
                     <label className="block text-xs text-slate-400 mb-1">
-                      右側目標目錄 (Target / Right — 支援本機或 \\NAS\Backup)
+                      {t("右側目標目錄 (Target / Right — 支援本機或 \\\\NAS\\Backup)")}
                     </label>
                     <input
                       type="text"
@@ -2392,21 +2426,21 @@ export function App() {
                     className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs flex items-center gap-1.5"
                   >
                     <ArrowLeftRight className="w-4 h-4" />
-                    1. 比對左右目錄差異
+                    {t("1. 比對左右目錄差異")}
                   </button>
                   <button
                     onClick={() => runSyncExecute(true)}
                     disabled={!syncReport}
                     className="px-4 py-2 rounded-xl bg-indigo-500/20 border border-indigo-500/40 text-indigo-200 hover:bg-indigo-500/30 disabled:opacity-40 text-xs font-medium"
                   >
-                    2. 預演同步 (Dry-Run)
+                    {t("2. 預演同步 (Dry-Run)")}
                   </button>
                   <button
                     onClick={() => runSyncExecute(false)}
                     disabled={!syncReport}
                     className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold disabled:opacity-40 text-xs"
                   >
-                    3. 立即執行同步
+                    {t("3. 立即執行同步")}
                   </button>
                 </div>
               </div>
@@ -2415,12 +2449,14 @@ export function App() {
                 <div className="p-4 rounded-2xl bg-emerald-950/50 border border-emerald-700/60 text-xs text-emerald-200 flex flex-wrap items-center justify-between gap-4">
                   <div>
                     <strong>
-                      {syncExecResult.dry_run ? '預演結果：' : '同步完成：'}
+                      {syncExecResult.dry_run ? t("預演結果：") : t("同步完成：")}
                     </strong>{' '}
-                    左→右複製 {syncExecResult.copied_left_to_right} 檔 · 右→左複製{' '}
-                    {syncExecResult.copied_right_to_left} 檔 · 右側清理{' '}
-                    {syncExecResult.deleted_right} 檔（傳輸總量{' '}
-                    {formatBytes(syncExecResult.bytes_copied)}）
+                    {t("左→右複製 {l2r} 檔 · 右→左複製 {r2l} 檔 · 右側清理 {del} 檔（傳輸總量 {size}）", {
+                      l2r: syncExecResult.copied_left_to_right,
+                      r2l: syncExecResult.copied_right_to_left,
+                      del: syncExecResult.deleted_right,
+                      size: formatBytes(syncExecResult.bytes_copied),
+                    })}
                   </div>
                 </div>
               )}
@@ -2435,37 +2471,37 @@ export function App() {
 
                   <div className="grid grid-cols-2 md:grid-cols-6 gap-3 text-xs">
                     <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
-                      <div className="text-slate-400">僅左側存在</div>
+                      <div className="text-slate-400">{t("僅左側存在")}</div>
                       <div className="text-lg font-bold text-cyan-300">
                         {syncReport.only_left_count}
                       </div>
                     </div>
                     <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
-                      <div className="text-slate-400">僅右側存在</div>
+                      <div className="text-slate-400">{t("僅右側存在")}</div>
                       <div className="text-lg font-bold text-amber-300">
                         {syncReport.only_right_count}
                       </div>
                     </div>
                     <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
-                      <div className="text-slate-400">左側較新</div>
+                      <div className="text-slate-400">{t("左側較新")}</div>
                       <div className="text-lg font-bold text-emerald-300">
                         {syncReport.left_newer_count}
                       </div>
                     </div>
                     <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
-                      <div className="text-slate-400">右側較新</div>
+                      <div className="text-slate-400">{t("右側較新")}</div>
                       <div className="text-lg font-bold text-indigo-300">
                         {syncReport.right_newer_count}
                       </div>
                     </div>
                     <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
-                      <div className="text-slate-400">內容不同</div>
+                      <div className="text-slate-400">{t("內容不同")}</div>
                       <div className="text-lg font-bold text-rose-300">
                         {syncReport.different_content_count}
                       </div>
                     </div>
                     <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
-                      <div className="text-slate-400">完全相同</div>
+                      <div className="text-slate-400">{t("完全相同")}</div>
                       <div className="text-lg font-bold text-slate-300">
                         {syncReport.identical_count}
                       </div>
@@ -2476,11 +2512,11 @@ export function App() {
                     <table className="w-full text-left text-xs">
                       <thead>
                         <tr className="bg-slate-900 border-b border-slate-800 text-slate-400">
-                          <th className="py-2.5 px-3">相對路徑</th>
-                          <th className="py-2.5 px-3 text-right">左側大小</th>
-                          <th className="py-2.5 px-3 text-center">差異狀態</th>
-                          <th className="py-2.5 px-3 text-right">右側大小</th>
-                          <th className="py-2.5 px-3 text-right">預定同步動作</th>
+                          <th className="py-2.5 px-3">{t("相對路徑")}</th>
+                          <th className="py-2.5 px-3 text-right">{t("左側大小")}</th>
+                          <th className="py-2.5 px-3 text-center">{t("差異狀態")}</th>
+                          <th className="py-2.5 px-3 text-right">{t("右側大小")}</th>
+                          <th className="py-2.5 px-3 text-right">{t("預定同步動作")}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800/60">
@@ -2527,14 +2563,14 @@ export function App() {
               <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 space-y-3">
                 <h2 className="text-sm font-semibold text-white flex items-center gap-2">
                   <Sparkles className="w-4 h-4 text-cyan-400" />
-                  開發者建置快取清理 (`target` / `node_modules` / `.venv`) & 重複檔案/重複圖片查殺
+                  {t("開發者建置快取清理 (`target` / `node_modules` / `.venv`) & 重複檔案/重複圖片查殺")}
                 </h2>
                 <div className="flex flex-wrap gap-2">
                   <input
                     type="text"
                     value={opsTargetPath}
                     onChange={(e) => setOpsTargetPath(e.target.value)}
-                    placeholder="輸入要掃描的工作區目錄路徑..."
+                    placeholder={t("輸入要掃描的工作區目錄路徑...")}
                     className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-100 min-w-[260px]"
                   />
                   <button
@@ -2542,14 +2578,14 @@ export function App() {
                     className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs flex items-center gap-1.5"
                   >
                     <Trash2 className="w-4 h-4" />
-                    掃描開發建置垃圾
+                    {t("掃描開發建置垃圾")}
                   </button>
                   <button
                     onClick={runDuplicateScan}
                     className="px-4 py-2 rounded-xl bg-pink-500 hover:bg-pink-400 text-slate-950 font-semibold text-xs flex items-center gap-1.5"
                   >
                     <ImageIcon className="w-4 h-4" />
-                    掃描重複檔案与圖片 (BLAKE3)
+                    {t("掃描重複檔案与圖片 (BLAKE3)")}
                   </button>
                 </div>
               </div>
@@ -2559,16 +2595,16 @@ export function App() {
                 <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 space-y-3">
                   <div className="flex items-center justify-between">
                     <h3 className="text-sm font-semibold text-white">
-                      發現可回收的開發者快取目錄（共計{' '}
+                      {t("發現可回收的開發者快取目錄（共計")}{' '}
                       <span className="text-cyan-300">
                         {formatBytes(junkReport.total_reclaimable_bytes)}
                       </span>
-                      ）
+                      {t("）")}
                     </h3>
                   </div>
                   {junkReport.items.length === 0 ? (
                     <p className="text-xs text-slate-400">
-                      此目錄下未發現大型開發快取目錄。
+                      {t("此目錄下未發現大型開發快取目錄。")}
                     </p>
                   ) : (
                     <div className="space-y-2 text-xs">
@@ -2582,7 +2618,7 @@ export function App() {
                               {item.kind} — {item.description}
                             </div>
                             <div className="text-slate-400 font-mono">
-                              {item.path} ({item.file_count} 個檔案)
+                              {item.path} ({t("{n} 個檔案", { n: item.file_count })})
                             </div>
                           </div>
                           <span className="font-mono font-bold text-amber-300">
@@ -2599,12 +2635,11 @@ export function App() {
               {dupReport && (
                 <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 space-y-3">
                   <h3 className="text-sm font-semibold text-white">
-                    BLAKE3 重複檔案與重複圖片報表（共 {dupReport.total_groups}{' '}
-                    組，可省下{' '}
+                    {t("BLAKE3 重複檔案與重複圖片報表（共 {n} 組，可省下", { n: dupReport.total_groups })}{' '}
                     <span className="text-pink-300">
                       {formatBytes(dupReport.total_wasted_bytes)}
                     </span>
-                    ）
+                    {t("）")}
                   </h3>
                   <div className="space-y-2.5 text-xs">
                     {dupReport.groups.map((g) => (
@@ -2615,11 +2650,13 @@ export function App() {
                         <div className="flex items-center justify-between">
                           <span className="font-mono text-cyan-300">
                             BLAKE3: {g.blake3_hash}...{' '}
-                            {g.is_image && '🖼️ (重複圖片)'}
+                            {g.is_image && t("🖼️ (重複圖片)")}
                           </span>
                           <span className="text-amber-300 font-semibold">
-                            單檔 {formatBytes(g.file_size_bytes)} · 浪費{' '}
-                            {formatBytes(g.wasted_bytes)}
+                            {t("單檔 {size} · 浪費 {wasted}", {
+                              size: formatBytes(g.file_size_bytes),
+                              wasted: formatBytes(g.wasted_bytes),
+                            })}
                           </span>
                         </div>
                         <ul className="list-disc list-inside text-slate-300 space-y-0.5">
@@ -2640,11 +2677,11 @@ export function App() {
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                   <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 space-y-3">
                     <h3 className="text-sm font-semibold text-white">
-                      💽 磁碟健康度 (S.M.A.R.T.) 與系統暫存區狀態
+                      {t("💽 磁碟健康度 (S.M.A.R.T.) 與系統暫存區狀態")}
                     </h3>
                     <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs flex justify-between">
                       <span className="text-slate-400">
-                        Windows Temp 暫存目錄 ({maintOverview.temp_dir_path})：
+                        {t("Windows Temp 暫存目錄 ({path})：", { path: maintOverview.temp_dir_path })}
                       </span>
                       <span className="font-mono font-bold text-amber-300">
                         {formatBytes(maintOverview.temp_dir_size_bytes)}
@@ -2668,7 +2705,7 @@ export function App() {
                     </div>
 
                     <h4 className="text-xs font-semibold text-slate-300 pt-2">
-                      🚀 偵測到的使用者開機啟動項 ({maintOverview.startup_entries.length})
+                      {t("🚀 偵測到的使用者開機啟動項 ({n})", { n: maintOverview.startup_entries.length })}
                     </h4>
                     <div className="space-y-1.5 text-xs">
                       {maintOverview.startup_entries.map((st) => (
@@ -2690,11 +2727,13 @@ export function App() {
                   <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 space-y-3">
                     <div className="flex items-center justify-between">
                       <h3 className="text-sm font-semibold text-white">
-                        🩺 系統 PATH 環境變數體檢
+                        {t("🩺 系統 PATH 環境變數體檢")}
                       </h3>
                       <span className="text-xs text-amber-300">
-                        失效路徑：{maintOverview.broken_path_count} 筆 · 網路路徑：
-                        {maintOverview.network_path_count} 筆
+                        {t("失效路徑：{broken} 筆 · 網路路徑：{net} 筆", {
+                          broken: maintOverview.broken_path_count,
+                          net: maintOverview.network_path_count,
+                        })}
                       </span>
                     </div>
                     <div className="space-y-1.5 max-h-96 overflow-y-auto text-xs">

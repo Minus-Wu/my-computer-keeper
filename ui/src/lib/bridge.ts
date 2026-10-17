@@ -140,10 +140,13 @@ export function formatBytes(bytes: number): string {
   return `${val >= 100 || i === 0 ? val.toFixed(0) : val.toFixed(1)} ${units[i]}`;
 }
 
-export function formatTimestamp(unixSecs: number | null): string {
+export function formatTimestamp(
+  unixSecs: number | null,
+  locale = 'zh-TW'
+): string {
   if (!unixSecs) return '-';
   const d = new Date(unixSecs * 1000);
-  return d.toLocaleString('zh-TW', {
+  return d.toLocaleString(locale, {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -152,10 +155,13 @@ export function formatTimestamp(unixSecs: number | null): string {
   });
 }
 
-export function formatUptime(secs: number): string {
+export function formatUptime(
+  secs: number,
+  t: (key: string, params?: Record<string, string | number>) => string
+): string {
   const days = Math.floor(secs / 86400);
   const hours = Math.floor((secs % 86400) / 3600);
   const mins = Math.floor((secs % 3600) / 60);
-  if (days > 0) return `${days} 天 ${hours} 小時 ${mins} 分`;
-  return `${hours} 小時 ${mins} 分`;
+  if (days > 0) return t("{days} 天 {hours} 小時 {mins} 分", { days, hours, mins });
+  return t("{hours} 小時 {mins} 分", { hours, mins });
 }
