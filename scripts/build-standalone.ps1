@@ -66,6 +66,11 @@ if (-not (Test-Path $DestDir)) {
 }
 
 $DestExe = "$DestDir\my-computer-keeper.exe"
+Get-Process -Name "my-computer-keeper" -ErrorAction SilentlyContinue | ForEach-Object {
+    Write-Host "  -> Closing running my-computer-keeper instance (PID $($_.Id))..." -ForegroundColor Yellow
+    Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+}
+Start-Sleep -Milliseconds 500
 Copy-Item -Path $TargetExe -Destination $DestExe -Force
 
 $ExeSize = (Get-Item $DestExe).Length / 1MB

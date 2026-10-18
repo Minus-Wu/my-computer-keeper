@@ -4,7 +4,7 @@ use keeper_core::explorer::{
     GeneralItemPreview, ImagePreviewResult,
 };
 use keeper_core::lockhunter::{
-    inspect_file_locks, schedule_delete_on_reboot, LockHunterReport,
+    inspect_file_locks, safe_eject_drive, schedule_delete_on_reboot, LockHunterReport,
 };
 use keeper_core::ops::{
     find_duplicates, inspect_system_maintenance, scan_junk_artifacts, DuplicateScanReport,
@@ -147,6 +147,13 @@ pub fn dispatch_command(cmd: &str, payload: &Value) -> Value {
                 .and_then(|v| v.as_str())
                 .unwrap_or_default();
             to_api_value(schedule_delete_on_reboot(path))
+        }
+        "eject_drive" => {
+            let drive = payload
+                .get("drive")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            to_api_value(safe_eject_drive(drive))
         }
         "compare_sync" => {
             let left = payload

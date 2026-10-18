@@ -20,6 +20,7 @@ import {
   Copy,
   Cpu,
   Database,
+  Disc,
   ExternalLink,
   Eye,
   FileCode,
@@ -380,6 +381,33 @@ export function App() {
       await refreshLockModal();
     } catch (err) {
       notifyError(err);
+    }
+  };
+
+  const isDriveTarget = (p?: string | null) => {
+    if (!p) return false;
+    const clean = p.replace(/^\\\\?\\/, '').trim();
+    return /^[a-zA-Z]:[\\/]?$/.test(clean);
+  };
+
+  const [ejectingDrive, setEjectingDrive] = useState<string | null>(null);
+
+  const handleSafeEjectDrive = async (drivePath: string) => {
+    try {
+      setEjectingDrive(drivePath);
+      const msg = await keeperApi.ejectDrive(drivePath);
+      notifyStatus(msg);
+      if (lockModalOpen) {
+        await refreshLockModal();
+      }
+      if (activeTab === 'lockhunter') {
+        await runLockHunter();
+      }
+      await keeperApi.getDrives().then(setDrives).catch(() => {});
+    } catch (err) {
+      notifyError(err);
+    } finally {
+      setEjectingDrive(null);
     }
   };
 
@@ -2356,20 +2384,44 @@ export function App() {
                                 {tx(lp.lock_reason)}
                               </td>
                               <td className="py-2.5 px-3 text-right">
-                                <button
-                                  onClick={async () => {
-                                    await handleKillProcess(lp.pid);
-                                    await runLockHunter();
-                                  }}
-                                  className="px-3 py-1 rounded-lg bg-rose-500 text-white font-semibold hover:bg-rose-400"
-                                >
-                                  {t("強制終止並解鎖")}
-                                </button>
+                                {lp.pid === 4 ? (
+                                  <button
+                                    disabled={ejectingDrive !== null}
+                                    onClick={() => handleSafeEjectDrive(lockReport.target_path)}
+                                    className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold flex items-center gap-1 ml-auto"
+                                  >
+                                    <Disc className={`w-3.5 h-3.5 ${ejectingDrive ? 'animate-spin' : ''}`} />
+                                    <span>{t("安全卸載並彈出")}</span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={async () => {
+                                      await handleKillProcess(lp.pid);
+                                      await runLockHunter();
+                                    }}
+                                    className="px-3 py-1 rounded-lg bg-rose-500 text-white font-semibold hover:bg-rose-400"
+                                  >
+                                    {t("強制終止並解鎖")}
+                                  </button>
+                                )}
                               </td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
+                    </div>
+                  )}
+
+                  {isDriveTarget(lockReport.target_path) && (
+                    <div className="pt-2 flex justify-end">
+                      <button
+                        disabled={ejectingDrive !== null}
+                        onClick={() => handleSafeEjectDrive(lockReport.target_path)}
+                        className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-xs flex items-center gap-1.5 shadow-sm transition-colors"
+                      >
+                        <Disc className={`w-4 h-4 ${ejectingDrive ? 'animate-spin' : ''}`} />
+                        <span>{ejectingDrive ? t("正在安全卸載...") : t("⏏️ 安全彈出外接硬碟 (Safe Eject)")}</span>
+                      </button>
                     </div>
                   )}
                 </div>
@@ -2947,14 +2999,27 @@ export function App() {
                                 {tx(lp.lock_reason)}
                               </td>
                               <td className="py-2.5 px-3 text-right">
-                                <button
-                                  onClick={() =>
-                                    handleKillLockProcess(lp.pid)
-                                  }
-                                  className="px-2.5 py-1 rounded-lg bg-rose-500 hover:bg-rose-400 text-white font-semibold text-xs shadow-sm transition-colors"
-                                >
-                                  {t("強制終止並解鎖")}
-                                </button>
+                                {lp.pid === 4 ? (
+                                  <button
+                                    disabled={ejectingDrive !== null}
+                                    onClick={() =>
+                                      handleSafeEjectDrive(lockModalReport.target_path)
+                                    }
+                                    className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-xs shadow-sm transition-colors flex items-center gap-1 ml-auto"
+                                  >
+                                    <Disc className={`w-3.5 h-3.5 ${ejectingDrive ? 'animate-spin' : ''}`} />
+                                    <span>{t("安全卸載並彈出")}</span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() =>
+                                      handleKillLockProcess(lp.pid)
+                                    }
+                                    className="px-2.5 py-1 rounded-lg bg-rose-500 hover:bg-rose-400 text-white font-semibold text-xs shadow-sm transition-colors"
+                                  >
+                                    {t("強制終止並解鎖")}
+                                  </button>
+                                )}
                               </td>
                             </tr>
                           ))}
@@ -2988,7 +3053,19 @@ export function App() {
             </div>
 
             {/* Modal 底端動作列 */}
-            <div className="p-3 border-t border-slate-800 bg-slate-900/90 flex justify-end shrink-0">
+            <div className="p-3 border-t border-slate-800 bg-slate-900/90 flex items-center justify-between shrink-0">
+              <div>
+                {isDriveTarget(lockModalReport?.target_path) && (
+                  <button
+                    disabled={ejectingDrive !== null}
+                    onClick={() => handleSafeEjectDrive(lockModalReport!.target_path)}
+                    className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-xs flex items-center gap-1.5 shadow-sm transition-colors"
+                  >
+                    <Disc className={`w-3.5 h-3.5 ${ejectingDrive ? 'animate-spin' : ''}`} />
+                    <span>{ejectingDrive ? t("正在安全卸載...") : t("⏏️ 安全彈出外接硬碟 (Safe Eject)")}</span>
+                  </button>
+                )}
+              </div>
               <button
                 onClick={() => setLockModalOpen(false)}
                 className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 font-medium transition-colors"

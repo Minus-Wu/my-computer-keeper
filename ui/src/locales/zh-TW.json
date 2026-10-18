@@ -195,5 +195,8 @@
   "🩺 系統 PATH 環境變數體檢": "🩺 系統 PATH 環境變數體檢",
   "失效路徑：{broken} 筆 · 網路路徑：{net} 筆": "失效路徑：{broken} 筆 · 網路路徑：{net} 筆",
   "{days} 天 {hours} 小時 {mins} 分": "{days} 天 {hours} 小時 {mins} 分",
-  "{hours} 小時 {mins} 分": "{hours} 小時 {mins} 分"
+  "{hours} 小時 {mins} 分": "{hours} 小時 {mins} 分",
+  "安全卸載並彈出": "安全卸載並彈出",
+  "正在安全卸載...": "正在安全卸載...",
+  "⏏️ 安全彈出外接硬碟 (Safe Eject)": "⏏️ 安全彈出外接硬碟 (Safe Eject)"
 }

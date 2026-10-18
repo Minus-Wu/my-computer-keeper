@@ -96,6 +96,8 @@ export const keeperApi = {
     invokeKeeper<LockHunterReport>('inspect_locks', { path }),
   scheduleBootDelete: (path: string) =>
     invokeKeeper<string>('schedule_boot_delete', { path }),
+  ejectDrive: (drive: string) =>
+    invokeKeeper<string>('eject_drive', { drive }),
   compareSync: (
     leftPath: string,
     rightPath: string,
