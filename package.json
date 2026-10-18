@@ -1,0 +1,26 @@
+{
+  "name": "my-computer-keeper",
+  "version": "0.1.0",
+  "description": "My Computer Keeper — 全能電腦維運與檔案管家 (Standalone Executable & Tauri v2)",
+  "private": true,
+  "scripts": {
+    "build:ui": "npm.cmd --prefix ui run build",
+    "build:standalone": "powershell -ExecutionPolicy Bypass -File scripts/build-standalone.ps1",
+    "build:standalone:test": "powershell -ExecutionPolicy Bypass -File scripts/build-standalone.ps1 -TestRun",
+    "test": "cargo test --workspace",
+    "clippy": "cargo clippy --workspace --all-targets -- -D warnings",
+    "dev:ui": "npm.cmd --prefix ui run dev",
+    "start": "cargo run -p my-computer-keeper"
+  },
+  "keywords": [
+    "desktop-app",
+    "file-manager",
+    "task-manager",
+    "system-maintenance",
+    "rust",
+    "react",
+    "standalone"
+  ],
+  "author": "Minus-Wu",
+  "license": "MIT"
+}

@@ -53,7 +53,20 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-### 3. 啟動桌面應用程式
+### 3. 建置可攜式單獨執行檔 (Standalone Single Executable)
+
+本專案支援將前端 React 介面、靜態資源與 Rust 核心引擎 100% 內嵌打包為單一 `.exe` 檔，無需攜帶任何外部目錄，複製至任意資料夾或隨身碟皆可直接執行：
+
+```powershell
+# 透過 npm 便捷指令一鍵打包
+npm run build:standalone
+
+# 或直接執行專屬 PowerShell 建置腳本 (支援 -TestRun 自我驗證)
+powershell -ExecutionPolicy Bypass -File .\scripts\build-standalone.ps1 -TestRun
+```
+產出的單獨執行檔將位於 `dist-standalone/my-computer-keeper.exe`。
+
+### 4. 啟動桌面應用程式 (開發模式)
 ```powershell
 cargo run -p my-computer-keeper
 ```

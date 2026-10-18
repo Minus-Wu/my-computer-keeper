@@ -1,11 +1,35 @@
 mod commands;
 
 use commands::dispatch_command;
+use rust_embed::RustEmbed;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tiny_http::{Header, Method, Response, Server};
+
+#[derive(RustEmbed)]
+#[folder = "../ui/dist"]
+pub struct EmbeddedUi;
+
+enum StaticPayload {
+    Bytes(Vec<u8>),
+    Cow(std::borrow::Cow<'static, [u8]>),
+}
+
+impl StaticPayload {
+    fn as_slice(&self) -> &[u8] {
+        match self {
+            StaticPayload::Bytes(b) => b.as_slice(),
+            StaticPayload::Cow(c) => c.as_ref(),
+        }
+    }
+}
+
+pub struct StaticResource {
+    payload: StaticPayload,
+    content_type: &'static str,
+}
 
 fn cors_headers() -> Vec<Header> {
     vec![
@@ -23,19 +47,22 @@ fn cors_headers() -> Vec<Header> {
     ]
 }
 
-fn content_type_for_path(path: &Path) -> &'static str {
-    match path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or_default()
-    {
+pub fn content_type_for_path_str(path: &str) -> &'static str {
+    let ext = path.rsplit('.').next().unwrap_or_default();
+    match ext.to_ascii_lowercase().as_str() {
         "html" => "text/html; charset=utf-8",
         "js" | "mjs" => "application/javascript; charset=utf-8",
         "css" => "text/css; charset=utf-8",
         "svg" => "image/svg+xml",
         "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
         "ico" => "image/x-icon",
         "json" => "application/json; charset=utf-8",
+        "woff2" => "font/woff2",
+        "woff" => "font/woff",
+        "ttf" => "font/ttf",
         _ => "application/octet-stream",
     }
 }
@@ -50,6 +77,55 @@ fn locate_ui_dist() -> Option<PathBuf> {
             .unwrap_or_else(|| PathBuf::from("ui/dist")),
     ];
     candidates.into_iter().find(|p| p.join("index.html").exists())
+}
+
+pub fn resolve_static_resource(url_path: &str, dist_dir: Option<&Path>) -> Option<StaticResource> {
+    let clean_rel = url_path.trim_start_matches('/').split('?').next().unwrap_or("");
+    let target = if clean_rel.is_empty() { "index.html" } else { clean_rel };
+
+    // 1. 若外部 dist_dir 目錄存在，優先從磁碟讀取（便於本機熱開發與抽換）
+    if let Some(dist) = dist_dir {
+        let candidate = dist.join(target);
+        if candidate.is_file() {
+            if let Ok(bytes) = fs::read(&candidate) {
+                return Some(StaticResource {
+                    payload: StaticPayload::Bytes(bytes),
+                    content_type: content_type_for_path_str(target),
+                });
+            }
+        }
+    }
+
+    // 2. 從單獨執行檔內嵌的 EmbeddedUi 讀取
+    if let Some(file) = EmbeddedUi::get(target) {
+        return Some(StaticResource {
+            payload: StaticPayload::Cow(file.data),
+            content_type: content_type_for_path_str(target),
+        });
+    }
+
+    // 3. SPA 路由 Fallback 到 index.html (若請求沒有副檔名或副檔名為 html)
+    if !target.contains('.') || target.ends_with(".html") {
+        if let Some(dist) = dist_dir {
+            let index_path = dist.join("index.html");
+            if index_path.is_file() {
+                if let Ok(bytes) = fs::read(&index_path) {
+                    return Some(StaticResource {
+                        payload: StaticPayload::Bytes(bytes),
+                        content_type: "text/html; charset=utf-8",
+                    });
+                }
+            }
+        }
+        if let Some(file) = EmbeddedUi::get("index.html") {
+            return Some(StaticResource {
+                payload: StaticPayload::Cow(file.data),
+                content_type: "text/html; charset=utf-8",
+            });
+        }
+    }
+
+    None
 }
 
 fn launch_desktop_app_window(url: &str) {
@@ -81,6 +157,7 @@ fn main() {
     let app_url = format!("http://{}", bind_addr);
     println!("====================================================");
     println!(" My Computer Keeper (Rust Core Engine + Desktop UI)");
+    println!(" Standalone Single Executable Mode: Ready");
     println!(" Local RPC & UI Host listening on: {}", app_url);
     println!("====================================================");
 
@@ -129,33 +206,21 @@ fn main() {
             continue;
         }
 
-        // 提供前端靜態檔案服務
-        if let Some(ref dist_dir) = ui_dist {
-            let clean_rel = url.trim_start_matches('/').split('?').next().unwrap_or("");
-            let file_path = if clean_rel.is_empty() {
-                dist_dir.join("index.html")
-            } else {
-                let candidate = dist_dir.join(clean_rel);
-                if candidate.is_file() {
-                    candidate
-                } else {
-                    dist_dir.join("index.html")
-                }
-            };
-
-            if let Ok(bytes) = fs::read(&file_path) {
-                let ctype = content_type_for_path(&file_path);
-                let mut resp = Response::from_data(bytes);
-                resp.add_header(
-                    Header::from_bytes(&b"Content-Type"[..], ctype.as_bytes()).unwrap(),
-                );
-                let _ = request.respond(resp);
-                continue;
+        // 提供前端靜態檔案服務 (支援單獨執行檔內嵌資源與本機檔案服務)
+        if let Some(res) = resolve_static_resource(&url, ui_dist.as_deref()) {
+            let mut resp = Response::from_data(res.payload.as_slice().to_vec());
+            resp.add_header(
+                Header::from_bytes(&b"Content-Type"[..], res.content_type.as_bytes()).unwrap(),
+            );
+            for h in cors_headers() {
+                resp.add_header(h);
             }
+            let _ = request.respond(resp);
+            continue;
         }
 
         let fallback = Response::from_string(
-            "My Computer Keeper Rust RPC Server is running. Run `npm run dev` in `ui/` or build `ui/dist`.",
+            "My Computer Keeper Rust RPC Server is running. UI assets not found.",
         );
         let _ = request.respond(fallback);
     }
@@ -164,7 +229,22 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::commands::dispatch_command;
+    use super::resolve_static_resource;
     use serde_json::json;
+
+    #[test]
+    fn test_embedded_ui_resolution() {
+        // 驗證即使不指定外部 dist_dir，單獨執行檔也能從內嵌 EmbeddedUi 中正確解析 index.html
+        let asset = resolve_static_resource("/", None);
+        assert!(asset.is_some(), "Embedded index.html should be resolvable even without external ui/dist");
+        let res = asset.unwrap();
+        assert_eq!(res.content_type, "text/html; charset=utf-8");
+        assert!(!res.payload.as_slice().is_empty());
+
+        // 測試 SPA fallback
+        let fallback_asset = resolve_static_resource("/treesize/explore", None);
+        assert!(fallback_asset.is_some(), "SPA routes should fallback to index.html");
+    }
 
     #[test]
     fn test_dispatch_get_drives_and_capabilities() {
@@ -194,4 +274,3 @@ mod tests {
         assert_eq!(kind, Some("text"));
     }
 }
-
