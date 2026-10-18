@@ -144,7 +144,26 @@ fn launch_desktop_app_window(url: &str) {
                 return;
             }
         }
-        let _ = Command::new("cmd").args(["/C", "start", url]).spawn();
+
+        // 使用 Windows 原生 API ShellExecuteW 安全開啟預設瀏覽器，不呼叫 cmd.exe 以免觸發防毒軟體啟發式誤判
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::UI::Shell::ShellExecuteW;
+        use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+        let wide_url: Vec<u16> = OsStr::new(url).encode_wide().chain(std::iter::once(0)).collect();
+        let wide_open: Vec<u16> = OsStr::new("open").encode_wide().chain(std::iter::once(0)).collect();
+
+        unsafe {
+            ShellExecuteW(
+                std::ptr::null_mut(),
+                wide_open.as_ptr(),
+                wide_url.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                SW_SHOWNORMAL,
+            );
+        }
     }
 }
 

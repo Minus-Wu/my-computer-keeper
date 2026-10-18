@@ -30,8 +30,17 @@ windows-sys = { version = "0.59", features = [
     "Win32_NetworkManagement_WNet",
     "Win32_System_RestartManager",
     "Win32_System_Registry",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
 ] }
 tempfile = "3.14"
 zip = { version = "2.2", default-features = false, features = ["deflate"] }
 rust-embed = "8.13"
+winres = "0.1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
 

@@ -24,4 +24,34 @@ fn main() {
         let _ = fs::write(index_html, fallback_html);
     }
     println!("cargo:rerun-if-changed=../ui/dist");
+
+    #[cfg(windows)]
+    {
+        let mut res = winres::WindowsResource::new();
+        res.set("FileDescription", "My Computer Keeper Desktop Application");
+        res.set("ProductName", "My Computer Keeper");
+        res.set("CompanyName", "Minus-Wu");
+        res.set("LegalCopyright", "Copyright (C) 2026 Minus-Wu");
+        res.set("OriginalFilename", "my-computer-keeper.exe");
+        res.set_manifest(r#"
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <!-- Windows 10 and Windows 11 -->
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}" />
+    </application>
+  </compatibility>
+</assembly>
+"#);
+        if let Err(e) = res.compile() {
+            eprintln!("Warning: Failed to compile windows resource: {}", e);
+        }
+    }
 }

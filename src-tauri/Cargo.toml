@@ -12,3 +12,7 @@ rust-embed.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tiny_http = "0.12"
+windows-sys.workspace = true
+
+[build-dependencies]
+winres.workspace = true
