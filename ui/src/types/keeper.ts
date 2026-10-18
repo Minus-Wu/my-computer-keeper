@@ -412,3 +412,17 @@ export interface SystemMaintenanceOverview {
   temp_dir_path: string;
   temp_dir_size_bytes: number;
 }
+
+export interface SafeEjectReport {
+  success: boolean;
+  drive_letter: string;
+  disk_number: number | null;
+  pnp_ejected: boolean;
+  flush_succeeded: boolean;
+  dismount_succeeded: boolean;
+  has_system_partition: boolean;
+  safe_to_unplug: boolean;
+  veto_reason: string | null;
+  message: string;
+  advisory: string[];
+}

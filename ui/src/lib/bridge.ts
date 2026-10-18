@@ -8,6 +8,7 @@ import type {
   JunkScanReport,
   LockHunterReport,
   PortBindingEntry,
+  SafeEjectReport,
   SyncComparisonReport,
   SyncExecutionSummary,
   SyncStrategy,
@@ -97,7 +98,7 @@ export const keeperApi = {
   scheduleBootDelete: (path: string) =>
     invokeKeeper<string>('schedule_boot_delete', { path }),
   ejectDrive: (drive: string) =>
-    invokeKeeper<string>('eject_drive', { drive }),
+    invokeKeeper<SafeEjectReport>('eject_drive', { drive }),
   compareSync: (
     leftPath: string,
     rightPath: string,

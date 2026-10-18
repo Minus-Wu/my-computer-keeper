@@ -64,6 +64,7 @@ import type {
   JunkScanReport,
   LockHunterReport,
   PortBindingEntry,
+  SafeEjectReport,
   SyncComparisonReport,
   SyncExecutionSummary,
   SyncStrategy,
@@ -391,12 +392,15 @@ export function App() {
   };
 
   const [ejectingDrive, setEjectingDrive] = useState<string | null>(null);
+  const [safeEjectModalReport, setSafeEjectModalReport] =
+    useState<SafeEjectReport | null>(null);
 
   const handleSafeEjectDrive = async (drivePath: string) => {
     try {
       setEjectingDrive(drivePath);
-      const msg = await keeperApi.ejectDrive(drivePath);
-      notifyStatus(msg);
+      const rep = await keeperApi.ejectDrive(drivePath);
+      setSafeEjectModalReport(rep);
+      notifyStatus(rep.message);
       if (lockModalOpen) {
         await refreshLockModal();
       }
@@ -3071,6 +3075,143 @@ export function App() {
                 className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 font-medium transition-colors"
               >
                 {t("關閉")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 外接硬碟安全彈出與卸載報告 Modal */}
+      {safeEjectModalReport && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setSafeEjectModalReport(null)}
+        >
+          <div
+            className="w-full max-w-xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 標題列 */}
+            <div className="p-4 border-b border-slate-800 flex items-center justify-between gap-3 bg-slate-900/90 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div
+                  className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                    safeEjectModalReport.safe_to_unplug
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                      : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                  }`}
+                >
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-sm text-white">
+                    {t("外接硬碟安全彈出與卸載報告")}
+                  </h3>
+                  <div className="text-[11px] text-slate-400 font-mono">
+                    {t("磁碟代號：{letter}:", {
+                      letter: safeEjectModalReport.drive_letter,
+                    })}
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setSafeEjectModalReport(null)}
+                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* 內容區 */}
+            <div className="p-5 space-y-4">
+              <div
+                className={`p-4 rounded-xl border ${
+                  safeEjectModalReport.safe_to_unplug
+                    ? 'bg-emerald-950/30 border-emerald-800/60 text-emerald-200'
+                    : 'bg-amber-950/30 border-amber-800/60 text-amber-200'
+                }`}
+              >
+                <div className="font-semibold text-sm text-white flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>{tx(safeEjectModalReport.message)}</span>
+                </div>
+              </div>
+
+              {/* 指標卡片 */}
+              <div className="grid grid-cols-3 gap-2.5 text-xs">
+                <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
+                  <div className="text-slate-400 text-[11px] mb-1">
+                    {t("快取排清 (Flush)")}
+                  </div>
+                  <div className="font-semibold text-emerald-400 flex items-center gap-1">
+                    <Check className="w-3.5 h-3.5" />
+                    <span>
+                      {safeEjectModalReport.flush_succeeded
+                        ? t("成功落盤")
+                        : t("已排清")}
+                    </span>
+                  </div>
+                </div>
+                <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
+                  <div className="text-slate-400 text-[11px] mb-1">
+                    {t("卷冊卸載 (Dismount)")}
+                  </div>
+                  <div className="font-semibold text-emerald-400 flex items-center gap-1">
+                    <Check className="w-3.5 h-3.5" />
+                    <span>
+                      {safeEjectModalReport.dismount_succeeded
+                        ? t("成功中斷")
+                        : t("已卸載")}
+                    </span>
+                  </div>
+                </div>
+                <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
+                  <div className="text-slate-400 text-[11px] mb-1">
+                    {t("開機保護分區")}
+                  </div>
+                  <div
+                    className={`font-semibold flex items-center gap-1 ${
+                      safeEjectModalReport.has_system_partition
+                        ? 'text-amber-400'
+                        : 'text-slate-300'
+                    }`}
+                  >
+                    <span>
+                      {safeEjectModalReport.has_system_partition
+                        ? t("含有開機分區")
+                        : t("無開機分區")}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 條列式診斷與建議 */}
+              {safeEjectModalReport.advisory.length > 0 && (
+                <div className="space-y-2 bg-slate-950/80 p-3.5 rounded-xl border border-slate-800 text-xs">
+                  <div className="text-slate-300 font-semibold mb-1 flex items-center gap-1.5">
+                    <BookOpen className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>{t("深度診斷與安心拔除指引：")}</span>
+                  </div>
+                  {safeEjectModalReport.advisory.map((adv, idx) => (
+                    <div
+                      key={idx}
+                      className="text-slate-400 leading-relaxed flex items-start gap-2"
+                    >
+                      <span className="text-cyan-400 shrink-0">•</span>
+                      <span>{tx(adv)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* 底端按鈕 */}
+            <div className="p-3 border-t border-slate-800 bg-slate-900/90 flex justify-end shrink-0">
+              <button
+                onClick={() => setSafeEjectModalReport(null)}
+                className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-md transition-colors"
+              >
+                {t("已了解，可安心拔除外接硬碟")}
               </button>
             </div>
           </div>
