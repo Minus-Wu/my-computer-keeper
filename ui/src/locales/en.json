@@ -212,6 +212,9 @@
   "無開機分區": "No Boot Partition",
   "深度診斷與安心拔除指引：": "Deep Diagnostics & Safe Removal Guide:",
   "已了解，可安心拔除外接硬碟": "Understood, safely unplug external drive",
+  "結束程式": "Exit App",
+  "關閉並結束程式": "Close and exit application",
+  "確定要結束並關閉程式嗎？": "Are you sure you want to exit and close the application?",
   "_backend": {
     "💡 外接磁碟診斷：若您嘗試退出磁碟機 {}: 卻提示「裝置正在使用中」，常見原因為 Windows 核心尚未排清寫入快取或檔案系統交易日誌 ($LogFile/$MFT)。您可點擊「安全彈出外接硬碟」強制排清並卸載磁區。": "💡 External drive diagnostics: If you try to eject drive {}: and Windows reports \"This device is currently in use\", the Windows kernel has likely not flushed write cache or NTFS transaction logs ($LogFile/$MFT). Click \"Safely Eject Drive\" to force flush and dismount the volume.",
     "System (Windows 核心檔案系統與快取管理員)": "System (Windows Kernel File System & Cache Manager)",

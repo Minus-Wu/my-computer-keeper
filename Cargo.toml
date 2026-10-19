@@ -35,6 +35,7 @@ windows-sys = { version = "0.59", features = [
     "Win32_Security",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
+    "Win32_System_Console",
 ] }
 tempfile = "3.14"
 zip = { version = "2.2", default-features = false, features = ["deflate"] }

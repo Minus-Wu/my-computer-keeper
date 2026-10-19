@@ -35,6 +35,7 @@ import {
   Music,
   Network,
   PieChart,
+  Power,
   RefreshCw,
   Search,
   ShieldAlert,
@@ -107,6 +108,34 @@ export function App() {
     document.documentElement.lang = locale;
     persistLocale(locale);
   }, [locale]);
+
+  // 桌面應用生命週期：心跳與視窗關閉通知後端結束背景行程
+  useEffect(() => {
+    const heartbeatTimer = setInterval(() => {
+      fetch('/api/heartbeat', { method: 'POST' }).catch(() => {});
+    }, 4000);
+
+    const handleUnload = () => {
+      try {
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon('/api/shutdown');
+        } else {
+          fetch('/api/shutdown', { method: 'POST', keepalive: true }).catch(() => {});
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    window.addEventListener('beforeunload', handleUnload);
+    window.addEventListener('pagehide', handleUnload);
+
+    return () => {
+      clearInterval(heartbeatTimer);
+      window.removeEventListener('beforeunload', handleUnload);
+      window.removeEventListener('pagehide', handleUnload);
+    };
+  }, []);
   const [activeTab, setActiveTab] = useState<ModuleTab>('explorer');
   const [drives, setDrives] = useState<DriveInfo[]>([]);
   const [currentPath, setCurrentPath] = useState<string>('');
@@ -615,19 +644,43 @@ export function App() {
           </nav>
         </div>
 
-        <select
-          value={locale}
-          onChange={(e) => setLocale(e.target.value)}
-          aria-label="Language"
-          title="Language"
-          className="text-xs bg-slate-950/80 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-500"
-        >
-          {availableLocales.map((l) => (
-            <option key={l.code} value={l.code}>
-              {l.name}
-            </option>
-          ))}
-        </select>
+        <div className="flex items-center gap-2">
+          <select
+            value={locale}
+            onChange={(e) => setLocale(e.target.value)}
+            aria-label="Language"
+            title="Language"
+            className="text-xs bg-slate-950/80 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-500 cursor-pointer"
+          >
+            {availableLocales.map((l) => (
+              <option key={l.code} value={l.code}>
+                {l.name}
+              </option>
+            ))}
+          </select>
+
+          <button
+            onClick={() => {
+              if (window.confirm(t("確定要結束並關閉程式嗎？"))) {
+                try {
+                  if (navigator.sendBeacon) {
+                    navigator.sendBeacon('/api/shutdown');
+                  } else {
+                    fetch('/api/shutdown', { method: 'POST' }).catch(() => {});
+                  }
+                } catch {
+                  // ignore
+                }
+                window.close();
+              }
+            }}
+            title={t("關閉並結束程式")}
+            className="text-xs bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/60 text-rose-300 hover:text-rose-100 rounded-lg px-2.5 py-1.5 flex items-center gap-1.5 transition-colors cursor-pointer"
+          >
+            <Power className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">{t("結束程式")}</span>
+          </button>
+        </div>
       </header>
 
       {/* 全域狀態與錯誤提示列 */}

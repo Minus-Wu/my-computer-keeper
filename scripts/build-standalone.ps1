@@ -16,6 +16,12 @@ Write-Host "==========================================================" -Foregro
 $RootDir = Split-Path -Parent $PSScriptRoot
 Set-Location $RootDir
 
+if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
+    if (Test-Path "$env:USERPROFILE\.cargo\bin\cargo.exe") {
+        $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
+    }
+}
+
 if ($Clean) {
     Write-Host "[1/4] Cleaning previous build artifacts..." -ForegroundColor Yellow
     if (Test-Path "$RootDir\ui\dist") { Remove-Item -Recurse -Force "$RootDir\ui\dist" }
