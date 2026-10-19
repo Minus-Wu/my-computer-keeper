@@ -52,6 +52,12 @@ if (-not $SkipUiBuild) {
     }
 }
 
+Get-Process -Name "my-computer-keeper" -ErrorAction SilentlyContinue | ForEach-Object {
+    Write-Host "  -> Closing running my-computer-keeper instance (PID $($_.Id))..." -ForegroundColor Yellow
+    Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+}
+Start-Sleep -Milliseconds 300
+
 # 2. Compile Rust standalone binary
 Write-Host "[2/3] Compiling Rust core engine and embedding UI into standalone binary (Release)..." -ForegroundColor Green
 & cargo build --release -p my-computer-keeper

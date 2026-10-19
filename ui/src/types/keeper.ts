@@ -221,6 +221,7 @@ export interface LargestFileItem {
 
 export interface TreeSizeReport {
   root_path: string;
+  parent_path: string | null;
   capabilities: VolumeCapabilities;
   total_size_bytes: number;
   total_files: number;

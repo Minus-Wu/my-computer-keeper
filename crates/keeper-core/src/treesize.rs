@@ -40,6 +40,7 @@ pub struct LargestFileItem {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TreeSizeReport {
     pub root_path: String,
+    pub parent_path: Option<String>,
     pub capabilities: VolumeCapabilities,
     pub total_size_bytes: u64,
     pub total_files: usize,
@@ -225,8 +226,14 @@ pub fn analyze_directory(path_str: &str, custom_max_depth: Option<usize>) -> Kee
     all_files.sort_by_key(|a| std::cmp::Reverse(a.size_bytes));
     all_files.truncate(20);
 
+    let parent_path = clean_root
+        .parent()
+        .map(|p| normalize_display_path(p).to_string_lossy().to_string())
+        .filter(|p| !p.is_empty() && p != &clean_root.to_string_lossy());
+
     Ok(TreeSizeReport {
         root_path: clean_root.to_string_lossy().to_string(),
+        parent_path,
         capabilities,
         total_size_bytes,
         total_files,
@@ -261,5 +268,6 @@ mod tests {
         assert_eq!(report.children.len(), 2);
         assert_eq!(report.children[0].name, "sub_a");
         assert_eq!(report.children[0].size_bytes, 4000);
+        assert!(report.parent_path.is_some());
     }
 }

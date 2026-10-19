@@ -168,3 +168,16 @@ export function formatUptime(
   if (days > 0) return t("{days} 天 {hours} 小時 {mins} 分", { days, hours, mins });
   return t("{hours} 小時 {mins} 分", { hours, mins });
 }
+
+export function computeParentPath(rawPath: string): string | null {
+  if (!rawPath) return null;
+  const normalized = rawPath.replace(/\//g, '\\').replace(/\\+$/, '');
+  if (/^[a-zA-Z]:\\?$/.test(normalized)) return null;
+  if (/^\\\\[^\\]+\\[^\\]+$/.test(normalized)) return null;
+  const lastSlash = normalized.lastIndexOf('\\');
+  if (lastSlash === -1) return null;
+  const parent = normalized.substring(0, lastSlash);
+  if (/^[a-zA-Z]:$/.test(parent)) return `${parent}\\`;
+  return parent || null;
+}
+
