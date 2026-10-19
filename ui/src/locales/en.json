@@ -216,6 +216,12 @@
   "結束程式": "Exit App",
   "關閉並結束程式": "Close and exit application",
   "確定要結束並關閉程式嗎？": "Are you sure you want to exit and close the application?",
+  "掃描分析中...": "Scanning & analyzing...",
+  "正在掃描磁碟目錄空間...": "Scanning folder disk usage...",
+  "遞迴遍歷子資料夾與統計大小中...": "Recursively traversing subdirectories and calculating sizes...",
+  "已耗時 {n} 秒": "Elapsed: {n}s",
+  "💡 提示：深層大型目錄或網路磁碟機耗時取決於檔案總數與儲存裝置讀取效能。": "💡 Tip: Deep directories or network shares scan duration depends on total files and device I/O performance.",
+  "請輸入或選擇目錄路徑，並點擊「立即掃描分析」以檢視空間佔比與巨型檔案": "Enter or choose a folder path and click \"Analyze Size Now\" to view space distribution and large files",
   "_backend": {
     "💡 外接磁碟診斷：若您嘗試退出磁碟機 {}: 卻提示「裝置正在使用中」，常見原因為 Windows 核心尚未排清寫入快取或檔案系統交易日誌 ($LogFile/$MFT)。您可點擊「安全彈出外接硬碟」強制排清並卸載磁區。": "💡 External drive diagnostics: If you try to eject drive {}: and Windows reports \"This device is currently in use\", the Windows kernel has likely not flushed write cache or NTFS transaction logs ($LogFile/$MFT). Click \"Safely Eject Drive\" to force flush and dismount the volume.",
     "System (Windows 核心檔案系統與快取管理員)": "System (Windows Kernel File System & Cache Manager)",

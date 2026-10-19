@@ -194,6 +194,25 @@ export function App() {
   const treeSizeParentPath = useMemo(() => {
     return treeSizeReport?.parent_path ?? computeParentPath(treeSizePath);
   }, [treeSizeReport?.parent_path, treeSizePath]);
+  const [treeSizeLoading, setTreeSizeLoading] = useState<boolean>(false);
+  const [treeSizeScanTarget, setTreeSizeScanTarget] = useState<string>('');
+  const [scanElapsedSecs, setScanElapsedSecs] = useState<number>(0);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval> | null = null;
+    if (treeSizeLoading) {
+      setScanElapsedSecs(0);
+      const start = Date.now();
+      timer = setInterval(() => {
+        setScanElapsedSecs(Number(((Date.now() - start) / 1000).toFixed(1)));
+      }, 100);
+    } else {
+      setScanElapsedSecs(0);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [treeSizeLoading]);
 
   // 3. 工作管理員 + Port Hunter 狀態
   const [sysSnapshot, setSysSnapshot] = useState<SystemSnapshot | null>(null);
@@ -316,6 +335,8 @@ export function App() {
     async (overridePath?: string) => {
       const target = overridePath ?? treeSizePath ?? currentPath;
       if (!target) return;
+      setTreeSizeScanTarget(target);
+      setTreeSizeLoading(true);
       setLoading(true);
       setErrorBanner(null);
       try {
@@ -325,6 +346,7 @@ export function App() {
       } catch (err) {
         notifyError(err);
       } finally {
+        setTreeSizeLoading(false);
         setLoading(false);
       }
     },
@@ -1945,19 +1967,19 @@ export function App() {
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
-                    runTreeSize(treeSizePath);
+                    if (!treeSizeLoading) runTreeSize(treeSizePath);
                   }}
                   className="flex-1 flex gap-2 min-w-[280px]"
                 >
                   <button
                     type="button"
                     onClick={() => {
-                      if (treeSizeParentPath) {
+                      if (treeSizeParentPath && !treeSizeLoading) {
                         setTreeSizePath(treeSizeParentPath);
                         runTreeSize(treeSizeParentPath);
                       }
                     }}
-                    disabled={!treeSizeParentPath}
+                    disabled={!treeSizeParentPath || treeSizeLoading}
                     className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed text-slate-200 transition-colors shrink-0 flex items-center justify-center cursor-pointer"
                     title={t("回上一層目錄")}
                   >
@@ -1966,20 +1988,26 @@ export function App() {
                   <input
                     type="text"
                     value={treeSizePath}
+                    disabled={treeSizeLoading}
                     onChange={(e) => setTreeSizePath(e.target.value)}
-                    className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-100"
+                    className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-100 disabled:opacity-60"
                     placeholder={t("輸入要分析空間的目錄路徑...")}
                   />
                   <button
                     type="submit"
-                    className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs flex items-center gap-1.5 shrink-0 cursor-pointer"
+                    disabled={treeSizeLoading}
+                    className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 font-semibold text-xs flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors shadow-md shadow-cyan-500/10"
                   >
-                    <PieChart className="w-4 h-4" />
-                    {t("立即掃描分析")}
+                    {treeSizeLoading ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <PieChart className="w-4 h-4" />
+                    )}
+                    <span>{treeSizeLoading ? t("掃描分析中...") : t("立即掃描分析")}</span>
                   </button>
                 </form>
 
-                {treeSizeReport && (
+                {!treeSizeLoading && treeSizeReport && (
                   <div className="flex items-center gap-4 text-xs">
                     <div>
                       <span className="text-slate-400">{t("總容量：")}</span>
@@ -2003,7 +2031,47 @@ export function App() {
                 )}
               </div>
 
-              {treeSizeReport && (
+              {/* 掃描進行中狀態（隱藏下方舊結果並呈現動態進度） */}
+              {treeSizeLoading && (
+                <div className="bg-slate-900/60 border border-cyan-500/30 rounded-2xl p-8 flex flex-col items-center justify-center text-center space-y-4 shadow-xl shadow-cyan-950/20">
+                  <div className="relative flex items-center justify-center">
+                    <div className="absolute w-20 h-20 rounded-full bg-cyan-500/15 animate-ping" />
+                    <div className="w-16 h-16 rounded-2xl bg-slate-950 border border-cyan-500/40 flex items-center justify-center text-cyan-400 shadow-inner">
+                      <PieChart className="w-8 h-8 animate-pulse text-cyan-400" />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5 max-w-md">
+                    <h3 className="text-base font-semibold text-white flex items-center justify-center gap-2">
+                      <RefreshCw className="w-4 h-4 text-cyan-400 animate-spin" />
+                      <span>{t("正在掃描磁碟目錄空間...")}</span>
+                    </h3>
+                    <p className="text-xs text-slate-400 break-all font-mono px-3 py-1.5 bg-slate-950/80 rounded-lg border border-slate-800">
+                      {treeSizeScanTarget || treeSizePath}
+                    </p>
+                  </div>
+
+                  {/* 動態進度條（脈衝光流） */}
+                  <div className="w-full max-w-md space-y-2">
+                    <div className="w-full h-2 bg-slate-950 rounded-full overflow-hidden border border-slate-800 relative">
+                      <div className="h-full bg-gradient-to-r from-cyan-500 via-sky-400 to-cyan-500 rounded-full w-full animate-pulse" />
+                    </div>
+                    <div className="flex justify-between items-center text-[11px] text-slate-400 px-1">
+                      <span>{t("遞迴遍歷子資料夾與統計大小中...")}</span>
+                      <span className="font-mono text-cyan-300 font-medium">
+                        {t("已耗時 {n} 秒", { n: scanElapsedSecs })}
+                      </span>
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] text-slate-500 max-w-md">
+                    {t("💡 提示：深層大型目錄或網路磁碟機耗時取決於檔案總數與儲存裝置讀取效能。")}
+                  </p>
+                </div>
+              )}
+
+              {/* 掃描完成後呈現分析結果 */}
+              {!treeSizeLoading && treeSizeReport && (
                 <>
                   {/* 互動式 Treemap 矩形樹狀圖 */}
                   <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 space-y-3">
@@ -2133,6 +2201,14 @@ export function App() {
                     </div>
                   </div>
                 </>
+              )}
+
+              {/* 尚未掃描時的空狀態提示 */}
+              {!treeSizeLoading && !treeSizeReport && (
+                <div className="p-12 text-center text-slate-500 text-xs bg-slate-900/40 rounded-2xl border border-slate-800/60 flex flex-col items-center justify-center space-y-2">
+                  <PieChart className="w-10 h-10 text-slate-600 opacity-50" />
+                  <p>{t("請輸入或選擇目錄路徑，並點擊「立即掃描分析」以檢視空間佔比與巨型檔案")}</p>
+                </div>
               )}
             </div>
           )}
