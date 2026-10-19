@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   availableLocales,
   detectLocale,
@@ -54,6 +54,7 @@ import {
   formatTimestamp,
   formatUptime,
   keeperApi,
+  normalizePathKey,
 } from './lib/bridge';
 import type {
   CompareMode,
@@ -191,6 +192,7 @@ export function App() {
   const [treeSizeReport, setTreeSizeReport] = useState<TreeSizeReport | null>(
     null
   );
+  const treeSizeCacheRef = useRef<Map<string, TreeSizeReport>>(new Map());
   const treeSizeParentPath = useMemo(() => {
     return treeSizeReport?.parent_path ?? computeParentPath(treeSizePath);
   }, [treeSizeReport?.parent_path, treeSizePath]);
@@ -330,17 +332,27 @@ export function App() {
     }
   };
 
-  // TreeSize 分析
+  // TreeSize 分析（支援快取防重掃描）
   const runTreeSize = useCallback(
-    async (overridePath?: string) => {
+    async (overridePath?: string, forceRefresh = false) => {
       const target = overridePath ?? treeSizePath ?? currentPath;
       if (!target) return;
+      const key = normalizePathKey(target);
+      if (!forceRefresh && treeSizeCacheRef.current.has(key)) {
+        const cached = treeSizeCacheRef.current.get(key)!;
+        setTreeSizeReport(cached);
+        setTreeSizePath(cached.root_path);
+        return;
+      }
       setTreeSizeScanTarget(target);
       setTreeSizeLoading(true);
       setLoading(true);
       setErrorBanner(null);
       try {
         const report = await keeperApi.analyzeTreeSize(target);
+        const reportKey = normalizePathKey(report.root_path);
+        treeSizeCacheRef.current.set(reportKey, report);
+        treeSizeCacheRef.current.set(key, report);
         setTreeSizeReport(report);
         setTreeSizePath(report.root_path);
       } catch (err) {
@@ -351,6 +363,33 @@ export function App() {
       }
     },
     [treeSizePath, currentPath]
+  );
+
+  // 切換上一層目錄：若有快取則瞬間載入，未掃描則切換路徑提示手動分析（不自動觸發重掃）
+  const handleTreeSizeGoParent = useCallback(() => {
+    if (!treeSizeParentPath || treeSizeLoading) return;
+    const parentKey = normalizePathKey(treeSizeParentPath);
+    setTreeSizePath(treeSizeParentPath);
+    if (treeSizeCacheRef.current.has(parentKey)) {
+      setTreeSizeReport(treeSizeCacheRef.current.get(parentKey)!);
+    } else {
+      setTreeSizeReport(null);
+    }
+  }, [treeSizeParentPath, treeSizeLoading]);
+
+  // Treemap 點選子目錄下鑽：快取命中則瞬間呈現，否則單獨掃描該子目錄
+  const handleTreeSizeDrillDown = useCallback(
+    (childPath: string) => {
+      if (treeSizeLoading) return;
+      const key = normalizePathKey(childPath);
+      setTreeSizePath(childPath);
+      if (treeSizeCacheRef.current.has(key)) {
+        setTreeSizeReport(treeSizeCacheRef.current.get(key)!);
+      } else {
+        runTreeSize(childPath, false);
+      }
+    },
+    [treeSizeLoading, runTreeSize]
   );
 
   // 工作管理員與 Port 監控
@@ -568,10 +607,19 @@ export function App() {
     }
   };
 
-  // 切換模組時自動載入對應資料
+  // 切換模組時自動載入對應資料（TreeSize 僅同步路徑或快取，絕不自動發起重度磁碟掃描）
   useEffect(() => {
-    if (activeTab === 'treesize' && !treeSizeReport && currentPath) {
-      runTreeSize(currentPath);
+    if (activeTab === 'treesize') {
+      if (!treeSizePath && currentPath) {
+        setTreeSizePath(currentPath);
+      }
+      const targetPath = treeSizePath || currentPath;
+      if (targetPath) {
+        const key = normalizePathKey(targetPath);
+        if (!treeSizeReport && treeSizeCacheRef.current.has(key)) {
+          setTreeSizeReport(treeSizeCacheRef.current.get(key)!);
+        }
+      }
     } else if (activeTab === 'taskmgr' && !sysSnapshot) {
       refreshTaskManager();
     } else if (activeTab === 'lockhunter' && !lockReport && currentPath) {
@@ -582,11 +630,11 @@ export function App() {
   }, [
     activeTab,
     currentPath,
+    treeSizePath,
     treeSizeReport,
     sysSnapshot,
     lockReport,
     maintOverview,
-    runTreeSize,
     refreshTaskManager,
     runLockHunter,
     loadSystemOps,
@@ -1967,18 +2015,13 @@ export function App() {
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
-                    if (!treeSizeLoading) runTreeSize(treeSizePath);
+                    if (!treeSizeLoading) runTreeSize(treeSizePath, true);
                   }}
                   className="flex-1 flex gap-2 min-w-[280px]"
                 >
                   <button
                     type="button"
-                    onClick={() => {
-                      if (treeSizeParentPath && !treeSizeLoading) {
-                        setTreeSizePath(treeSizeParentPath);
-                        runTreeSize(treeSizeParentPath);
-                      }
-                    }}
+                    onClick={handleTreeSizeGoParent}
                     disabled={!treeSizeParentPath || treeSizeLoading}
                     className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed text-slate-200 transition-colors shrink-0 flex items-center justify-center cursor-pointer"
                     title={t("回上一層目錄")}
@@ -1989,7 +2032,14 @@ export function App() {
                     type="text"
                     value={treeSizePath}
                     disabled={treeSizeLoading}
-                    onChange={(e) => setTreeSizePath(e.target.value)}
+                    onChange={(e) => {
+                      const newPath = e.target.value;
+                      setTreeSizePath(newPath);
+                      const key = normalizePathKey(newPath);
+                      if (treeSizeCacheRef.current.has(key)) {
+                        setTreeSizeReport(treeSizeCacheRef.current.get(key)!);
+                      }
+                    }}
                     className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-100 disabled:opacity-60"
                     placeholder={t("輸入要分析空間的目錄路徑...")}
                   />
@@ -2084,10 +2134,7 @@ export function App() {
                         {treeSizeParentPath && (
                           <button
                             type="button"
-                            onClick={() => {
-                              setTreeSizePath(treeSizeParentPath);
-                              runTreeSize(treeSizeParentPath);
-                            }}
+                            onClick={handleTreeSizeGoParent}
                             className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700 hover:border-slate-600 transition-colors cursor-pointer"
                             title={t("回上一層目錄")}
                           >
@@ -2118,8 +2165,7 @@ export function App() {
                             key={node.path}
                             onClick={() => {
                               if (node.is_dir) {
-                                setTreeSizePath(node.path);
-                                runTreeSize(node.path);
+                                handleTreeSizeDrillDown(node.path);
                               }
                             }}
                             style={{ flexGrow: Math.round(flexBasis), flexBasis: `${flexBasis}%` }}
@@ -2203,11 +2249,34 @@ export function App() {
                 </>
               )}
 
-              {/* 尚未掃描時的空狀態提示 */}
+              {/* 尚未掃描或切換目錄後的狀態提示 */}
               {!treeSizeLoading && !treeSizeReport && (
-                <div className="p-12 text-center text-slate-500 text-xs bg-slate-900/40 rounded-2xl border border-slate-800/60 flex flex-col items-center justify-center space-y-2">
-                  <PieChart className="w-10 h-10 text-slate-600 opacity-50" />
-                  <p>{t("請輸入或選擇目錄路徑，並點擊「立即掃描分析」以檢視空間佔比與巨型檔案")}</p>
+                <div className="p-12 text-center text-slate-400 text-xs bg-slate-900/40 rounded-2xl border border-slate-800/60 flex flex-col items-center justify-center space-y-3">
+                  <div className="w-12 h-12 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-center text-slate-500">
+                    <PieChart className="w-6 h-6" />
+                  </div>
+                  <div className="max-w-md space-y-1">
+                    <p className="text-slate-300 font-medium">
+                      {treeSizePath
+                        ? t("目錄已切換。點擊上方「立即掃描分析」按鈕以分析空間佔比與巨型檔案。")
+                        : t("請輸入或選擇目錄路徑，並點擊「立即掃描分析」以檢視空間佔比與巨型檔案")}
+                    </p>
+                    {treeSizePath && (
+                      <p className="text-[11px] font-mono text-slate-500 break-all">
+                        {treeSizePath}
+                      </p>
+                    )}
+                  </div>
+                  {treeSizePath && (
+                    <button
+                      type="button"
+                      onClick={() => runTreeSize(treeSizePath, true)}
+                      className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs flex items-center gap-1.5 cursor-pointer transition-colors shadow-md shadow-cyan-500/10"
+                    >
+                      <PieChart className="w-4 h-4" />
+                      <span>{t("立即掃描分析")}</span>
+                    </button>
+                  )}
                 </div>
               )}
             </div>

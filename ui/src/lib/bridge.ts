@@ -181,3 +181,9 @@ export function computeParentPath(rawPath: string): string | null {
   return parent || null;
 }
 
+export function normalizePathKey(p: string): string {
+  if (!p) return '';
+  return p.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase();
+}
+
+
