@@ -2058,9 +2058,27 @@ export function App() {
                 </form>
 
                 {!treeSizeLoading && treeSizeReport && (
-                  <div className="flex items-center gap-4 text-xs">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs">
                     <div>
-                      <span className="text-slate-400">{t("總容量：")}</span>
+                      {treeSizeReport.is_drive_root && treeSizeReport.drive_total_bytes ? (
+                        <>
+                          <span className="text-slate-400">{t("磁碟容量：")}</span>
+                          <span className="font-bold text-cyan-300 font-mono">
+                            {formatBytes(treeSizeReport.drive_used_bytes ?? 0)}
+                          </span>
+                          <span className="text-slate-500 font-mono text-[11px]">
+                            {' '}/ {formatBytes(treeSizeReport.drive_total_bytes)}
+                          </span>
+                          {treeSizeReport.drive_free_bytes != null && (
+                            <span className="text-emerald-400 font-mono text-[11px] ml-1.5">
+                              ({t("可用 {size}", { size: formatBytes(treeSizeReport.drive_free_bytes) })})
+                            </span>
+                          )}
+                          <span className="text-slate-400 ml-3">{t("已掃描檔案：")}</span>
+                        </>
+                      ) : (
+                        <span className="text-slate-400">{t("已分析大小：")}</span>
+                      )}
                       <span className="font-bold text-cyan-300">
                         {formatBytes(treeSizeReport.total_size_bytes)}
                       </span>
@@ -2123,6 +2141,12 @@ export function App() {
               {/* 掃描完成後呈現分析結果 */}
               {!treeSizeLoading && treeSizeReport && (
                 <>
+                  {treeSizeReport.truncated_by_safety_limit && (
+                    <div className="flex items-center gap-2 p-3.5 rounded-xl bg-amber-950/40 border border-amber-600/40 text-amber-200 text-xs">
+                      <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span>{t("⚠️ 掃描已達項目安全上限，部分深層子目錄未完成統計。")}</span>
+                    </div>
+                  )}
                   {/* 互動式 Treemap 矩形樹狀圖 */}
                   <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 space-y-3">
                     <div className="flex items-center justify-between flex-wrap gap-2">
@@ -2169,7 +2193,7 @@ export function App() {
                               }
                             }}
                             style={{ flexGrow: Math.round(flexBasis), flexBasis: `${flexBasis}%` }}
-                            className={`p-3 rounded-xl border text-left transition-transform hover:scale-[1.01] flex flex-col justify-between min-w-[140px] min-h-[84px] ${colorClass}`}
+                            className={`p-3 rounded-xl border text-left transition-transform ${node.is_dir ? 'hover:scale-[1.01] cursor-pointer' : 'cursor-default opacity-95'} flex flex-col justify-between min-w-[140px] min-h-[84px] ${colorClass}`}
                           >
                             <div className="flex items-center justify-between gap-1">
                               <span className="font-bold text-xs text-white truncate">

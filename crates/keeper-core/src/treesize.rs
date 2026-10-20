@@ -1,4 +1,7 @@
-use crate::drive::{inspect_path_capabilities, normalize_display_path, VolumeCapabilities};
+use crate::drive::{
+    inspect_path_capabilities, is_drive_root, normalize_display_path, query_volume_space,
+    VolumeCapabilities,
+};
 use crate::explorer::{classify_extension, FileCategory};
 use crate::{KeeperError, KeeperResult};
 use serde::{Deserialize, Serialize};
@@ -47,6 +50,10 @@ pub struct TreeSizeReport {
     pub total_dirs: usize,
     pub scan_duration_ms: u128,
     pub truncated_by_safety_limit: bool,
+    pub drive_total_bytes: Option<u64>,
+    pub drive_free_bytes: Option<u64>,
+    pub drive_used_bytes: Option<u64>,
+    pub is_drive_root: bool,
     pub children: Vec<TreeSizeNode>,
     pub category_breakdown: Vec<CategoryStat>,
     pub largest_files: Vec<LargestFileItem>,
@@ -66,8 +73,12 @@ fn category_label(cat: FileCategory) -> &'static str {
     }
 }
 
-/// 執行 TreeSize 磁碟空間分析（針對本機與網路磁碟機自動套用對應掃描深度與項目上限）
-pub fn analyze_directory(path_str: &str, custom_max_depth: Option<usize>) -> KeeperResult<TreeSizeReport> {
+/// 執行 TreeSize 磁碟空間分析
+/// 針對本機磁碟提供無項目上限的深度掃描與精準容量對齊；針對網路磁碟機自動套用受控深度與項目上限保護
+pub fn analyze_directory(
+    path_str: &str,
+    custom_max_depth: Option<usize>,
+) -> KeeperResult<TreeSizeReport> {
     let start = Instant::now();
     let root = Path::new(path_str);
     if !root.exists() {
@@ -77,22 +88,34 @@ pub fn analyze_directory(path_str: &str, custom_max_depth: Option<usize>) -> Kee
     let canonical = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
     let clean_root = normalize_display_path(&canonical);
     let capabilities = inspect_path_capabilities(&clean_root);
+    let is_root = is_drive_root(&clean_root);
+    let volume_space = query_volume_space(&clean_root);
 
     let max_depth = custom_max_depth
         .unwrap_or(capabilities.max_scan_depth)
         .min(capabilities.max_scan_depth);
-    let max_entries = capabilities.max_scan_entries;
+
+    // 本機磁碟不應受限於 25 萬項人工上限；網路磁碟機則維持保護性上限
+    let max_entries = if capabilities.is_network_drive {
+        capabilities.max_scan_entries
+    } else {
+        usize::MAX
+    };
 
     let mut total_size_bytes = 0u64;
     let mut total_files = 0usize;
     let mut total_dirs = 0usize;
     let mut truncated = false;
 
-    // 記錄第一層子項目（供 Treemap 與階層列表下鑽使用）
+    // 記錄第一層子項目：(first_path_string, is_dir, size_bytes, file_count, category)
     let mut top_child_map: HashMap<String, (String, bool, u64, usize, FileCategory)> =
         HashMap::new();
-    let mut category_map: HashMap<String, (FileCategory, u64, usize)> = HashMap::new();
-    let mut all_files: Vec<LargestFileItem> = Vec::new();
+    let mut category_map: HashMap<FileCategory, (u64, usize)> = HashMap::new();
+
+    // 高效 Top 20 巨型檔案追踪（避免為百萬檔案做大量字串複製與排序）
+    const TOP_FILES_LIMIT: usize = 20;
+    let mut largest_files: Vec<LargestFileItem> = Vec::with_capacity(TOP_FILES_LIMIT + 1);
+    let mut min_largest_size = 0u64;
 
     let walker = WalkDir::new(&clean_root)
         .max_depth(max_depth)
@@ -108,18 +131,18 @@ pub fn analyze_directory(path_str: &str, custom_max_depth: Option<usize>) -> Kee
             Ok(e) => e,
             Err(_) => continue,
         };
-        if entry.depth() == 0 {
+        let depth = entry.depth();
+        if depth == 0 {
             continue;
         }
 
-        let entry_path = normalize_display_path(entry.path());
         let meta = match entry.metadata() {
             Ok(m) => m,
             Err(_) => continue,
         };
 
-        // 找出屬於 clean_root 下第一層的名稱與路徑
-        let rel = match entry_path.strip_prefix(&clean_root) {
+        // 找出相對於 clean_root 的第一層子目錄或檔案名稱
+        let rel = match entry.path().strip_prefix(&clean_root) {
             Ok(r) => r,
             Err(_) => continue,
         };
@@ -127,14 +150,18 @@ pub fn analyze_directory(path_str: &str, custom_max_depth: Option<usize>) -> Kee
             Some(c) => c.as_os_str().to_string_lossy().to_string(),
             None => continue,
         };
-        let first_path = clean_root.join(&first_comp);
-        let first_is_dir = first_path.is_dir();
+
+        // 結構化推導第一層是否為目錄：depth > 1 必定為目錄，depth == 1 則由 meta 決定
+        let first_is_dir = if depth > 1 { true } else { meta.is_dir() };
 
         if meta.is_dir() {
             total_dirs += 1;
             top_child_map.entry(first_comp.clone()).or_insert_with(|| {
+                let first_path = clean_root.join(&first_comp);
                 (
-                    first_path.to_string_lossy().to_string(),
+                    normalize_display_path(&first_path)
+                        .to_string_lossy()
+                        .to_string(),
                     true,
                     0,
                     0,
@@ -146,15 +173,19 @@ pub fn analyze_directory(path_str: &str, custom_max_depth: Option<usize>) -> Kee
             total_files += 1;
             total_size_bytes = total_size_bytes.saturating_add(file_size);
 
-            let ext = entry_path
+            let ext = entry
+                .path()
                 .extension()
                 .map(|e| e.to_string_lossy().to_ascii_lowercase())
                 .unwrap_or_default();
             let (cat, is_image) = classify_extension(&ext, false);
 
             let top_entry = top_child_map.entry(first_comp.clone()).or_insert_with(|| {
+                let first_path = clean_root.join(&first_comp);
                 (
-                    first_path.to_string_lossy().to_string(),
+                    normalize_display_path(&first_path)
+                        .to_string_lossy()
+                        .to_string(),
                     first_is_dir,
                     0,
                     0,
@@ -168,45 +199,96 @@ pub fn analyze_directory(path_str: &str, custom_max_depth: Option<usize>) -> Kee
             top_entry.2 = top_entry.2.saturating_add(file_size);
             top_entry.3 += 1;
 
-            let cat_key = format!("{:?}", cat);
-            let cat_stat = category_map.entry(cat_key).or_insert((cat, 0, 0));
-            cat_stat.1 = cat_stat.1.saturating_add(file_size);
-            cat_stat.2 += 1;
+            let cat_stat = category_map.entry(cat).or_insert((0, 0));
+            cat_stat.0 = cat_stat.0.saturating_add(file_size);
+            cat_stat.1 += 1;
 
-            all_files.push(LargestFileItem {
-                name: entry.file_name().to_string_lossy().to_string(),
-                path: entry_path.to_string_lossy().to_string(),
-                size_bytes: file_size,
-                category: cat,
-                is_image,
-            });
+            if largest_files.len() < TOP_FILES_LIMIT || file_size > min_largest_size {
+                let norm_path = normalize_display_path(entry.path());
+                largest_files.push(LargestFileItem {
+                    name: entry.file_name().to_string_lossy().to_string(),
+                    path: norm_path.to_string_lossy().to_string(),
+                    size_bytes: file_size,
+                    category: cat,
+                    is_image,
+                });
+                largest_files.sort_by_key(|f| std::cmp::Reverse(f.size_bytes));
+                if largest_files.len() > TOP_FILES_LIMIT {
+                    largest_files.truncate(TOP_FILES_LIMIT);
+                }
+                min_largest_size = largest_files.last().map(|f| f.size_bytes).unwrap_or(0);
+            }
         }
     }
 
+    let (drive_total_bytes, drive_free_bytes, drive_used_bytes) = match volume_space {
+        Some((total, free, used)) => (Some(total), Some(free), Some(used)),
+        None => (None, None, None),
+    };
+
+    // 若掃描目標為磁碟機根目錄（如 C:\），以磁碟實體已用空間為百分比基準；
+    // 否則以實際掃描到的檔案總量為百分比基準
+    let percentage_base = if is_root {
+        drive_used_bytes
+            .unwrap_or(total_size_bytes)
+            .max(total_size_bytes)
+    } else {
+        total_size_bytes
+    };
+
     let mut children: Vec<TreeSizeNode> = top_child_map
         .into_iter()
-        .map(|(name, (path, is_dir, size_bytes, file_count, category))| {
-            let percentage = if total_size_bytes > 0 {
-                ((size_bytes as f64 / total_size_bytes as f64) * 100.0) as f32
-            } else {
-                0.0
-            };
-            TreeSizeNode {
-                name,
-                path,
-                is_dir,
-                size_bytes,
-                file_count,
-                percentage,
-                category,
-            }
-        })
+        .map(
+            |(name, (path, is_dir, size_bytes, file_count, category))| {
+                let percentage = if percentage_base > 0 {
+                    ((size_bytes as f64 / percentage_base as f64) * 100.0) as f32
+                } else {
+                    0.0
+                };
+                TreeSizeNode {
+                    name,
+                    path,
+                    is_dir,
+                    size_bytes,
+                    file_count,
+                    percentage,
+                    category,
+                }
+            },
+        )
         .collect();
+
+    // 若掃描磁碟機根目錄且磁碟實體已用空間大於掃描檔案總量（例如 Windows VSS 還原點、MFT 等未直接列舉空間）
+    if is_root {
+        if let Some(used) = drive_used_bytes {
+            let unallocated_system = used.saturating_sub(total_size_bytes);
+            if unallocated_system >= 5 * 1024 * 1024 {
+                let percentage = if percentage_base > 0 {
+                    ((unallocated_system as f64 / percentage_base as f64) * 100.0) as f32
+                } else {
+                    0.0
+                };
+                let sys_path = clean_root.join("System Volume Information");
+                children.push(TreeSizeNode {
+                    name: "🛡️ 系統保留/受保護空間 (VSS還原點與MFT)".to_string(),
+                    path: normalize_display_path(&sys_path)
+                        .to_string_lossy()
+                        .to_string(),
+                    is_dir: false,
+                    size_bytes: unallocated_system,
+                    file_count: 0,
+                    percentage,
+                    category: FileCategory::Other,
+                });
+            }
+        }
+    }
+
     children.sort_by_key(|a| std::cmp::Reverse(a.size_bytes));
 
     let mut category_breakdown: Vec<CategoryStat> = category_map
-        .into_values()
-        .map(|(category, size_bytes, file_count)| {
+        .into_iter()
+        .map(|(category, (size_bytes, file_count))| {
             let percentage = if total_size_bytes > 0 {
                 ((size_bytes as f64 / total_size_bytes as f64) * 100.0) as f32
             } else {
@@ -223,9 +305,6 @@ pub fn analyze_directory(path_str: &str, custom_max_depth: Option<usize>) -> Kee
         .collect();
     category_breakdown.sort_by_key(|a| std::cmp::Reverse(a.size_bytes));
 
-    all_files.sort_by_key(|a| std::cmp::Reverse(a.size_bytes));
-    all_files.truncate(20);
-
     let parent_path = clean_root
         .parent()
         .map(|p| normalize_display_path(p).to_string_lossy().to_string())
@@ -240,9 +319,13 @@ pub fn analyze_directory(path_str: &str, custom_max_depth: Option<usize>) -> Kee
         total_dirs,
         scan_duration_ms: start.elapsed().as_millis(),
         truncated_by_safety_limit: truncated,
+        drive_total_bytes,
+        drive_free_bytes,
+        drive_used_bytes,
+        is_drive_root: is_root,
         children,
         category_breakdown,
-        largest_files: all_files,
+        largest_files,
     })
 }
 
@@ -269,5 +352,15 @@ mod tests {
         assert_eq!(report.children[0].name, "sub_a");
         assert_eq!(report.children[0].size_bytes, 4000);
         assert!(report.parent_path.is_some());
+        assert!(!report.is_drive_root);
+    }
+
+    #[test]
+    fn test_drive_root_helper() {
+        assert!(is_drive_root(Path::new(r"C:\")));
+        assert!(is_drive_root(Path::new(r"D:")));
+        assert!(is_drive_root(Path::new(r"\\?\E:\")));
+        assert!(!is_drive_root(Path::new(r"C:\Windows")));
+        assert!(!is_drive_root(Path::new(r"C:\Users\test")));
     }
 }

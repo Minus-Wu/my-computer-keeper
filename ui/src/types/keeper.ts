@@ -228,6 +228,10 @@ export interface TreeSizeReport {
   total_dirs: number;
   scan_duration_ms: number;
   truncated_by_safety_limit: boolean;
+  drive_total_bytes?: number | null;
+  drive_free_bytes?: number | null;
+  drive_used_bytes?: number | null;
+  is_drive_root?: boolean;
   children: TreeSizeNode[];
   category_breakdown: CategoryStat[];
   largest_files: LargestFileItem[];

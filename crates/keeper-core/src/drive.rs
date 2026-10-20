@@ -56,8 +56,8 @@ impl VolumeCapabilities {
             supports_boot_delete: drive_kind == DriveKind::Fixed,
             lockhunter_scope: LockHunterScope::FullLocal,
             max_scan_threads: 16,
-            max_scan_depth: 32,
-            max_scan_entries: 250_000,
+            max_scan_depth: 64,
+            max_scan_entries: 5_000_000,
             max_auto_preview_bytes: 100 * 1024 * 1024, // 100 MB
             sync_timestamp_tolerance_secs: 0,
             limitations_notice: Vec::new(),
@@ -121,6 +121,60 @@ pub fn is_unc_network_path(path_str: &str) -> bool {
 }
 
 #[cfg(windows)]
+/// 判斷路徑是否為磁碟機根目錄（例如 `C:\`、`D:`、`\\?\C:\`）
+pub fn is_drive_root(path: &Path) -> bool {
+    let s = path.to_string_lossy();
+    let trimmed = s.trim_start_matches(r"\\?\").trim();
+    if trimmed.len() <= 3 {
+        let bytes = trimmed.as_bytes();
+        if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+            return bytes.len() == 2 || (bytes.len() == 3 && (bytes[2] == b'\\' || bytes[2] == b'/'));
+        }
+    }
+    false
+}
+
+/// 查詢指定路徑所屬磁碟區的空間狀態：(總容量, 可用容量, 已用容量)
+#[cfg(windows)]
+pub fn query_volume_space(path: &Path) -> Option<(u64, u64, u64)> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+
+    let path_str = path.to_string_lossy();
+    let mut normalized = path_str.to_string();
+    if !normalized.ends_with('\\') && !normalized.ends_with('/') {
+        normalized.push('\\');
+    }
+    let wide: Vec<u16> = std::ffi::OsStr::new(&normalized)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+
+    let mut free_bytes_available: u64 = 0;
+    let mut total_number_of_bytes: u64 = 0;
+    let mut total_number_of_free_bytes: u64 = 0;
+
+    let res = unsafe {
+        GetDiskFreeSpaceExW(
+            wide.as_ptr(),
+            &mut free_bytes_available as *mut _ as *mut _,
+            &mut total_number_of_bytes as *mut _ as *mut _,
+            &mut total_number_of_free_bytes as *mut _ as *mut _,
+        )
+    };
+    if res != 0 && total_number_of_bytes > 0 {
+        let used = total_number_of_bytes.saturating_sub(total_number_of_free_bytes);
+        Some((total_number_of_bytes, total_number_of_free_bytes, used))
+    } else {
+        None
+    }
+}
+
+#[cfg(not(windows))]
+pub fn query_volume_space(_path: &Path) -> Option<(u64, u64, u64)> {
+    None
+}
+
 fn query_windows_drive_type_and_unc(drive_root: &str) -> (DriveKind, Option<String>) {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::NetworkManagement::WNet::WNetGetConnectionW;

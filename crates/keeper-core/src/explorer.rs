@@ -8,7 +8,7 @@ use std::io::Cursor;
 use std::path::Path;
 use std::time::UNIX_EPOCH;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FileCategory {
     Directory,

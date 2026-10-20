@@ -111,7 +111,11 @@
   "我了解網路磁碟機不支援本機資源回收筒，允許在網路磁碟上執行永久刪除。": "I understand network drives have no Recycle Bin and allow permanent deletion on network drives.",
   "輸入要分析空間的目錄路徑...": "Enter a folder path to analyze...",
   "立即掃描分析": "Scan now",
-  "總容量：": "Total size:",
+  "磁碟容量：": "Drive Capacity:",
+  "可用 {size}": "Free: {size}",
+  "已掃描檔案：": "Scanned Files:",
+  "已分析大小：": "Analyzed Size:",
+  "⚠️ 掃描已達項目安全上限，部分深層子目錄未完成統計。": "⚠️ Scan reached safety limit; some deep subdirectories were not fully processed.",
   "檔案數：": "Files:",
   "耗時：": "Elapsed:",
   "互動式 Treemap 空間佔比矩形圖（點擊子資料夾可下鑽分析）": "Interactive treemap of space usage (click a subfolder to drill down)",
@@ -513,6 +517,7 @@
     "其他檔案": "Other files",
     "未知的指令: {}": "Unknown command: {}",
     "Rust 核心通訊錯誤 (HTTP {})": "Rust core communication error (HTTP {})",
-    "執行指令 {} 失敗": "Command {} failed"
+    "執行指令 {} 失敗": "Command {} failed",
+    "🛡️ 系統保留/受保護空間 (VSS還原點與MFT)": "🛡️ System Protected / Reserved (VSS & MFT)"
   }
 }
