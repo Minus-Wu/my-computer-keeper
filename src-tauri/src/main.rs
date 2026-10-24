@@ -14,6 +14,14 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tiny_http::{Header, Method, Response, Server};
 
+use tao::{
+    dpi::LogicalSize,
+    event::{Event, WindowEvent},
+    event_loop::{ControlFlow, EventLoop},
+    window::WindowBuilder,
+};
+use wry::WebViewBuilder;
+
 #[cfg(windows)]
 fn try_attach_console() {
     use windows_sys::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
@@ -151,7 +159,32 @@ pub fn resolve_static_resource(url_path: &str, dist_dir: Option<&Path>) -> Optio
     None
 }
 
-fn launch_desktop_app_window(url: &str) {
+fn run_desktop_window(app_url: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let event_loop = EventLoop::new();
+    let window = WindowBuilder::new()
+        .with_title("My Computer Keeper — 全能電腦維運與檔案管家")
+        .with_inner_size(LogicalSize::new(1440.0, 920.0))
+        .with_min_inner_size(LogicalSize::new(1100.0, 720.0))
+        .build(&event_loop)?;
+
+    let _webview = WebViewBuilder::new()
+        .with_url(app_url)
+        .with_devtools(cfg!(debug_assertions))
+        .build(&window)?;
+
+    event_loop.run(move |event, _, control_flow| {
+        *control_flow = ControlFlow::Wait;
+        if let Event::WindowEvent {
+            event: WindowEvent::CloseRequested,
+            ..
+        } = event
+        {
+            *control_flow = ControlFlow::Exit;
+        }
+    });
+}
+
+fn launch_browser_fallback(url: &str) {
     #[cfg(windows)]
     {
         let edge_paths = [
@@ -190,74 +223,13 @@ fn launch_desktop_app_window(url: &str) {
     }
 }
 
-fn main() {
-    #[cfg(windows)]
-    try_attach_console();
-
-    let args: Vec<String> = std::env::args().collect();
-    let headless = args.iter().any(|a| a == "--headless" || a == "--api-only");
-    let bind_addr = std::env::var("KEEPER_BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:14280".to_string());
-    let app_url = format!("http://{}", bind_addr);
-
-    let server = match Server::http(&bind_addr) {
-        Ok(s) => s,
-        Err(_err) => {
-            // 若連接埠已被佔用（例如背景已有一份執行中實例），直接開啟桌面介面並優雅退出，避免重複啟動失敗
-            if !headless {
-                launch_desktop_app_window(&app_url);
-            }
-            return;
-        }
-    };
-
-    println!("====================================================");
-    println!(" My Computer Keeper (Rust Core Engine + Desktop UI)");
-    println!(" Standalone Single Executable Mode: Ready");
-    println!(" Local RPC & UI Host listening on: {}", app_url);
-    println!("====================================================");
-
-    if !headless {
-        launch_desktop_app_window(&app_url);
-    }
-
-    let last_activity = Arc::new(AtomicU64::new(current_timestamp_secs()));
-    let shutdown_pending = Arc::new(AtomicBool::new(false));
-    let has_connected = Arc::new(AtomicBool::new(false));
-
-    // 非 headless 模式啟動生命週期守護執行緒：當前端視窗被關閉或長時間閒置無心跳時，自動結束後端服務
-    if !headless {
-        let act = Arc::clone(&last_activity);
-        let shut = Arc::clone(&shutdown_pending);
-        let conn = Arc::clone(&has_connected);
-
-        std::thread::spawn(move || {
-            let start = Instant::now();
-            loop {
-                std::thread::sleep(Duration::from_millis(1000));
-
-                // 1. 若前端關閉視窗觸發 beforeunload / pagehide 發送 /api/shutdown
-                if shut.load(Ordering::SeqCst) {
-                    std::thread::sleep(Duration::from_millis(1500));
-                    // 1.5 秒內若無新的請求（排除 F5 重新整理頁面的情況），安全結束行程
-                    if shut.load(Ordering::SeqCst) {
-                        std::process::exit(0);
-                    }
-                }
-
-                // 2. 超時保護：若前端曾連線，但超過 90 秒未收到任何心跳或請求（代表瀏覽器被強制結束或當機）
-                if conn.load(Ordering::SeqCst) && start.elapsed() > Duration::from_secs(30) {
-                    let now = current_timestamp_secs();
-                    let last = act.load(Ordering::SeqCst);
-                    if now.saturating_sub(last) > 90 {
-                        std::process::exit(0);
-                    }
-                }
-            }
-        });
-    }
-
-    let ui_dist = locate_ui_dist();
-
+fn run_http_service(
+    server: Arc<Server>,
+    ui_dist: Option<PathBuf>,
+    shutdown_pending: Arc<AtomicBool>,
+    has_connected: Arc<AtomicBool>,
+    last_activity: Arc<AtomicU64>,
+) {
     for mut request in server.incoming_requests() {
         last_activity.store(current_timestamp_secs(), Ordering::SeqCst);
 
@@ -360,6 +332,82 @@ fn main() {
             "My Computer Keeper Rust RPC Server is running. UI assets not found.",
         );
         let _ = request.respond(fallback);
+    }
+}
+
+fn main() {
+    #[cfg(windows)]
+    try_attach_console();
+
+    let args: Vec<String> = std::env::args().collect();
+    let headless = args.iter().any(|a| a == "--headless" || a == "--api-only");
+    let bind_target = std::env::var("KEEPER_BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:14280".to_string());
+
+    let server = match Server::http(&bind_target) {
+        Ok(s) => s,
+        Err(_) => {
+            // 若預設連接埠被佔用，自動指派本機隨機空閒通訊埠
+            Server::http("127.0.0.1:0").expect("Failed to bind to local port")
+        }
+    };
+
+    let actual_addr = server.server_addr();
+    let app_url = format!("http://{}", actual_addr);
+
+    println!("====================================================");
+    println!(" My Computer Keeper (Rust Core Engine + Desktop UI)");
+    println!(" Native Desktop Application Mode: Active");
+    println!(" Local RPC & UI Host listening on: {}", app_url);
+    println!("====================================================");
+
+    let last_activity = Arc::new(AtomicU64::new(current_timestamp_secs()));
+    let shutdown_pending = Arc::new(AtomicBool::new(false));
+    let has_connected = Arc::new(AtomicBool::new(false));
+    let ui_dist = locate_ui_dist();
+
+    let server_arc = Arc::new(server);
+    let s_clone = Arc::clone(&server_arc);
+    let last_clone = Arc::clone(&last_activity);
+    let shut_clone = Arc::clone(&shutdown_pending);
+    let conn_clone = Arc::clone(&has_connected);
+
+    let server_thread = std::thread::spawn(move || {
+        run_http_service(s_clone, ui_dist, shut_clone, conn_clone, last_clone);
+    });
+
+    if headless {
+        println!("Headless / API mode running. Waiting for incoming requests...");
+        let _ = server_thread.join();
+    } else {
+        // 啟動真正的 Windows 原生桌面視窗
+        if let Err(err) = run_desktop_window(&app_url) {
+            eprintln!("Failed to launch native desktop window: {}. Falling back to browser...", err);
+            launch_browser_fallback(&app_url);
+
+            // 備援瀏覽器模式下的生命週期守護
+            let act = Arc::clone(&last_activity);
+            let shut = Arc::clone(&shutdown_pending);
+            let conn = Arc::clone(&has_connected);
+            let start = Instant::now();
+
+            loop {
+                std::thread::sleep(Duration::from_millis(1000));
+                if shut.load(Ordering::SeqCst) {
+                    std::thread::sleep(Duration::from_millis(1500));
+                    if shut.load(Ordering::SeqCst) {
+                        std::process::exit(0);
+                    }
+                }
+                if conn.load(Ordering::SeqCst) && start.elapsed() > Duration::from_secs(30) {
+                    let now = current_timestamp_secs();
+                    let last = act.load(Ordering::SeqCst);
+                    if now.saturating_sub(last) > 90 {
+                        std::process::exit(0);
+                    }
+                }
+            }
+        }
+        std::process::exit(0);
     }
 }
 

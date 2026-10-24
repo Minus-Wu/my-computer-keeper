@@ -228,6 +228,7 @@
   "請輸入或選擇目錄路徑，並點擊「立即掃描分析」以檢視空間佔比與巨型檔案": "Enter or choose a folder path and click \"Analyze Size Now\" to view space distribution and large files",
   "目錄已切換。點擊上方「立即掃描分析」按鈕以分析空間佔比與巨型檔案。": "Directory changed. Click \"Analyze Size Now\" above to analyze space distribution and largest files.",
   "_backend": {
+    "My Computer Keeper — 全能電腦維運與檔案管家": "My Computer Keeper — System Maintenance & File Manager",
     "💡 外接磁碟診斷：若您嘗試退出磁碟機 {}: 卻提示「裝置正在使用中」，常見原因為 Windows 核心尚未排清寫入快取或檔案系統交易日誌 ($LogFile/$MFT)。您可點擊「安全彈出外接硬碟」強制排清並卸載磁區。": "💡 External drive diagnostics: If you try to eject drive {}: and Windows reports \"This device is currently in use\", the Windows kernel has likely not flushed write cache or NTFS transaction logs ($LogFile/$MFT). Click \"Safely Eject Drive\" to force flush and dismount the volume.",
     "System (Windows 核心檔案系統與快取管理員)": "System (Windows Kernel File System & Cache Manager)",
     "Windows 核心維持著磁碟 {}: 的寫入快取 (Dirty Cache)、NTFS 交易日誌 ($LogFile/$MFT) 或 System Volume Information 句柄，阻止外接硬碟安全移除。請使用下方『安全彈出外接硬碟』強制排清並卸載磁區。": "The Windows kernel holds dirty write cache, NTFS transaction logs ($LogFile/$MFT), or System Volume Information handles on drive {}:, preventing safe removal. Use \"Safely Eject Drive\" below to force flush and dismount the volume.",

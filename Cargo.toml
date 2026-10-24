@@ -41,6 +41,8 @@ tempfile = "3.14"
 zip = { version = "2.2", default-features = false, features = ["deflate"] }
 rust-embed = "8.13"
 winres = "0.1"
+wry = "0.57"
+tao = "0.37"
 
 [profile.release]
 opt-level = 3
