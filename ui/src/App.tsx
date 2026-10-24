@@ -47,6 +47,8 @@ import {
   X,
   ZoomIn,
   ZoomOut,
+  Gauge,
+  XCircle,
 } from 'lucide-react';
 import {
   computeParentPath,
@@ -73,6 +75,7 @@ import type {
   SyncStrategy,
   SystemMaintenanceOverview,
   SystemSnapshot,
+  TreeSizeProgress,
   TreeSizeReport,
   VolumeCapabilities,
 } from './types/keeper';
@@ -199,6 +202,40 @@ export function App() {
   const [treeSizeLoading, setTreeSizeLoading] = useState<boolean>(false);
   const [treeSizeScanTarget, setTreeSizeScanTarget] = useState<string>('');
   const [scanElapsedSecs, setScanElapsedSecs] = useState<number>(0);
+  const [treeSizeProgress, setTreeSizeProgress] = useState<TreeSizeProgress | null>(null);
+  const [treeSizeScanRate, setTreeSizeScanRate] = useState<number>(0);
+  const activeTreeSizeScanIdRef = useRef<string | null>(null);
+  const treeSizePollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastProgressSampleRef = useRef<{ time: number; files: number }>({ time: 0, files: 0 });
+
+  const stopTreeSizePolling = useCallback(() => {
+    if (treeSizePollTimerRef.current) {
+      clearInterval(treeSizePollTimerRef.current);
+      treeSizePollTimerRef.current = null;
+    }
+  }, []);
+
+  const handleCancelTreeSize = useCallback(async () => {
+    const activeScanId = activeTreeSizeScanIdRef.current;
+    stopTreeSizePolling();
+    if (activeScanId) {
+      try {
+        await keeperApi.cancelTreeSizeScan(activeScanId);
+      } catch {
+        // 略過取消錯誤
+      }
+      activeTreeSizeScanIdRef.current = null;
+    }
+    setTreeSizeLoading(false);
+    setLoading(false);
+    notifyStatus(t("已取消磁碟空間分析"));
+  }, [stopTreeSizePolling]);
+
+  useEffect(() => {
+    return () => {
+      stopTreeSizePolling();
+    };
+  }, [stopTreeSizePolling]);
 
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | null = null;
@@ -332,7 +369,7 @@ export function App() {
     }
   };
 
-  // TreeSize 分析（支援快取防重掃描）
+  // TreeSize 分析（支援非同步即時進度與快取防重掃描）
   const runTreeSize = useCallback(
     async (overridePath?: string, forceRefresh = false) => {
       const target = overridePath ?? treeSizePath ?? currentPath;
@@ -344,25 +381,76 @@ export function App() {
         setTreeSizePath(cached.root_path);
         return;
       }
+      if (activeTreeSizeScanIdRef.current) {
+        stopTreeSizePolling();
+        keeperApi.cancelTreeSizeScan(activeTreeSizeScanIdRef.current).catch(() => {});
+        activeTreeSizeScanIdRef.current = null;
+      }
       setTreeSizeScanTarget(target);
+      setTreeSizeProgress(null);
+      setTreeSizeScanRate(0);
+      lastProgressSampleRef.current = { time: Date.now(), files: 0 };
       setTreeSizeLoading(true);
       setLoading(true);
       setErrorBanner(null);
       try {
-        const report = await keeperApi.analyzeTreeSize(target);
-        const reportKey = normalizePathKey(report.root_path);
-        treeSizeCacheRef.current.set(reportKey, report);
-        treeSizeCacheRef.current.set(key, report);
-        setTreeSizeReport(report);
-        setTreeSizePath(report.root_path);
+        const { scan_id } = await keeperApi.startTreeSizeScan(target);
+        activeTreeSizeScanIdRef.current = scan_id;
+        const pollTimer = setInterval(async () => {
+          if (activeTreeSizeScanIdRef.current !== scan_id) {
+            clearInterval(pollTimer);
+            return;
+          }
+          try {
+            const state = await keeperApi.getTreeSizeProgress(scan_id);
+            if (!state) return;
+            const now = Date.now();
+            const elapsedSinceSample = (now - lastProgressSampleRef.current.time) / 1000;
+            if (elapsedSinceSample >= 0.4) {
+              const filesDiff = state.progress.processed_files - lastProgressSampleRef.current.files;
+              const rate = Math.max(0, Math.round(filesDiff / elapsedSinceSample));
+              setTreeSizeScanRate(rate);
+              lastProgressSampleRef.current = { time: now, files: state.progress.processed_files };
+            }
+            setTreeSizeProgress(state.progress);
+            if (state.status === 'completed' && state.report) {
+              clearInterval(pollTimer);
+              treeSizePollTimerRef.current = null;
+              activeTreeSizeScanIdRef.current = null;
+              const report = state.report;
+              const reportKey = normalizePathKey(report.root_path);
+              treeSizeCacheRef.current.set(reportKey, report);
+              treeSizeCacheRef.current.set(key, report);
+              setTreeSizeReport(report);
+              setTreeSizePath(report.root_path);
+              setTreeSizeLoading(false);
+              setLoading(false);
+            } else if (state.status === 'cancelled') {
+              clearInterval(pollTimer);
+              treeSizePollTimerRef.current = null;
+              activeTreeSizeScanIdRef.current = null;
+              setTreeSizeLoading(false);
+              setLoading(false);
+            } else if (state.status === 'failed') {
+              clearInterval(pollTimer);
+              treeSizePollTimerRef.current = null;
+              activeTreeSizeScanIdRef.current = null;
+              setTreeSizeLoading(false);
+              setLoading(false);
+              notifyError(state.error ?? t("空間分析失敗"));
+            }
+          } catch {
+            // 輪詢網路波動不中斷
+          }
+        }, 160);
+        treeSizePollTimerRef.current = pollTimer;
       } catch (err) {
-        notifyError(err);
-      } finally {
         setTreeSizeLoading(false);
         setLoading(false);
+        notifyError(err);
       }
     },
-    [treeSizePath, currentPath]
+    [treeSizePath, currentPath, stopTreeSizePolling]
   );
 
   // 切換上一層目錄：若有快取則瞬間載入，未掃描則切換路徑提示手動分析（不自動觸發重掃）
@@ -2099,41 +2187,114 @@ export function App() {
                 )}
               </div>
 
-              {/* 掃描進行中狀態（隱藏下方舊結果並呈現動態進度） */}
+              {/* 掃描進行中狀態（隱藏下方舊結果並呈現即時動態進度） */}
               {treeSizeLoading && (
-                <div className="bg-slate-900/60 border border-cyan-500/30 rounded-2xl p-8 flex flex-col items-center justify-center text-center space-y-4 shadow-xl shadow-cyan-950/20">
-                  <div className="relative flex items-center justify-center">
-                    <div className="absolute w-20 h-20 rounded-full bg-cyan-500/15 animate-ping" />
-                    <div className="w-16 h-16 rounded-2xl bg-slate-950 border border-cyan-500/40 flex items-center justify-center text-cyan-400 shadow-inner">
-                      <PieChart className="w-8 h-8 animate-pulse text-cyan-400" />
+                <div className="bg-slate-900/80 border border-cyan-500/30 rounded-2xl p-6 sm:p-8 flex flex-col items-center justify-center text-center space-y-6 shadow-xl shadow-cyan-950/20 backdrop-blur-sm">
+                  <div className="flex flex-col items-center space-y-3">
+                    <div className="relative flex items-center justify-center">
+                      <div className="absolute w-20 h-20 rounded-full bg-cyan-500/20 animate-ping" />
+                      <div className="w-16 h-16 rounded-2xl bg-slate-950 border border-cyan-500/50 flex items-center justify-center text-cyan-400 shadow-lg shadow-cyan-950/50">
+                        <PieChart className="w-8 h-8 animate-pulse text-cyan-400" />
+                      </div>
+                    </div>
+                    <div className="space-y-1 max-w-lg">
+                      <h3 className="text-base sm:text-lg font-semibold text-white flex items-center justify-center gap-2">
+                        <RefreshCw className="w-4 h-4 text-cyan-400 animate-spin" />
+                        <span>{t("正在掃描磁碟目錄空間...")}</span>
+                      </h3>
+                      <p className="text-xs text-slate-400 break-all font-mono px-3 py-1.5 bg-slate-950/80 rounded-lg border border-slate-800 inline-block">
+                        {treeSizeScanTarget || treeSizePath}
+                      </p>
                     </div>
                   </div>
 
-                  <div className="space-y-1.5 max-w-md">
-                    <h3 className="text-base font-semibold text-white flex items-center justify-center gap-2">
-                      <RefreshCw className="w-4 h-4 text-cyan-400 animate-spin" />
-                      <span>{t("正在掃描磁碟目錄空間...")}</span>
-                    </h3>
-                    <p className="text-xs text-slate-400 break-all font-mono px-3 py-1.5 bg-slate-950/80 rounded-lg border border-slate-800">
-                      {treeSizeScanTarget || treeSizePath}
-                    </p>
-                  </div>
-
-                  {/* 動態進度條（脈衝光流） */}
-                  <div className="w-full max-w-md space-y-2">
-                    <div className="w-full h-2 bg-slate-950 rounded-full overflow-hidden border border-slate-800 relative">
-                      <div className="h-full bg-gradient-to-r from-cyan-500 via-sky-400 to-cyan-500 rounded-full w-full animate-pulse" />
+                  {/* 進度條與預估百分比 */}
+                  <div className="w-full max-w-xl space-y-2">
+                    <div className="w-full h-3 bg-slate-950 rounded-full overflow-hidden border border-slate-800 relative p-0.5 shadow-inner">
+                      {treeSizeProgress?.estimated_percent != null ? (
+                        <div
+                          className="h-full bg-gradient-to-r from-cyan-500 via-sky-400 to-emerald-400 rounded-full transition-all duration-200 relative overflow-hidden"
+                          style={{
+                            width: `${Math.min(100, Math.max(3, treeSizeProgress.estimated_percent))}%`,
+                          }}
+                        >
+                          <div className="absolute inset-0 bg-white/20 animate-pulse" />
+                        </div>
+                      ) : (
+                        <div className="h-full bg-gradient-to-r from-cyan-500 via-sky-400 to-cyan-500 rounded-full w-full animate-pulse" />
+                      )}
                     </div>
-                    <div className="flex justify-between items-center text-[11px] text-slate-400 px-1">
-                      <span>{t("遞迴遍歷子資料夾與統計大小中...")}</span>
-                      <span className="font-mono text-cyan-300 font-medium">
-                        {t("已耗時 {n} 秒", { n: scanElapsedSecs })}
+                    <div className="flex justify-between items-center text-xs text-slate-400 px-1 font-mono">
+                      <span>
+                        {treeSizeProgress?.estimated_percent != null
+                          ? t("預估進度：{percent}%", {
+                              percent: treeSizeProgress.estimated_percent.toFixed(1),
+                            })
+                          : t("遞迴遍歷子資料夾與統計大小中...")}
+                      </span>
+                      <span className="text-cyan-300 font-medium">
+                        {t("已耗時 {n} 秒", {
+                          n: treeSizeProgress
+                            ? (treeSizeProgress.elapsed_ms / 1000).toFixed(1)
+                            : scanElapsedSecs,
+                        })}
                       </span>
                     </div>
                   </div>
 
+                  {/* 即時 4 大指標數據卡片 */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full max-w-xl">
+                    <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3 flex flex-col items-center">
+                      <span className="text-[11px] text-slate-400 mb-0.5">{t("已掃描檔案")}</span>
+                      <span className="font-mono text-base font-bold text-white tracking-tight">
+                        {(treeSizeProgress?.processed_files ?? 0).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3 flex flex-col items-center">
+                      <span className="text-[11px] text-slate-400 mb-0.5">{t("已掃描資料夾")}</span>
+                      <span className="font-mono text-base font-bold text-slate-200 tracking-tight">
+                        {(treeSizeProgress?.processed_dirs ?? 0).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3 flex flex-col items-center">
+                      <span className="text-[11px] text-slate-400 mb-0.5">{t("已統計大小")}</span>
+                      <span className="font-mono text-base font-bold text-cyan-300 tracking-tight">
+                        {formatBytes(treeSizeProgress?.processed_bytes ?? 0)}
+                      </span>
+                    </div>
+                    <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3 flex flex-col items-center">
+                      <span className="text-[11px] text-slate-400 mb-0.5">{t("分析速度")}</span>
+                      <span className="font-mono text-base font-bold text-emerald-400 tracking-tight">
+                        {treeSizeScanRate > 0
+                          ? t("{rate} 檔/秒", { rate: treeSizeScanRate.toLocaleString() })
+                          : "..."}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* 即時走訪路徑指示 */}
+                  <div className="w-full max-w-xl bg-slate-950/90 border border-slate-800/90 rounded-xl px-3.5 py-2 flex items-center gap-2 text-left text-xs">
+                    <Gauge className="w-3.5 h-3.5 text-cyan-400 shrink-0 animate-spin" />
+                    <span className="text-slate-500 shrink-0 font-medium">{t("當前路徑：")}</span>
+                    <span className="font-mono text-slate-300 truncate">
+                      {treeSizeProgress?.current_path || treeSizeScanTarget || treeSizePath}
+                    </span>
+                  </div>
+
+                  {/* 取消按鈕 */}
+                  <div className="pt-1 flex items-center justify-center">
+                    <button
+                      type="button"
+                      onClick={handleCancelTreeSize}
+                      className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 border border-rose-600/50 hover:border-rose-500 text-rose-200 hover:text-white text-xs font-semibold shadow-md transition-all cursor-pointer"
+                    >
+                      <XCircle className="w-4 h-4 text-rose-400" />
+                      <span>{t("取消分析")}</span>
+                    </button>
+                  </div>
+
                   <p className="text-[11px] text-slate-500 max-w-md">
-                    {t("💡 提示：深層大型目錄或網路磁碟機耗時取決於檔案總數與儲存裝置讀取效能。")}
+                    {t("💡 提示：已自動略過 Windows Junction 循環與系統虛擬保護區，保障掃描順暢與安全。")}
                   </p>
                 </div>
               )}

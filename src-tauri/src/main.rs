@@ -458,4 +458,31 @@ mod tests {
             .and_then(|v| v.as_str());
         assert_eq!(kind, Some("text"));
     }
+
+    #[test]
+    fn test_dispatch_treesize_async_scan() {
+        let start_res = dispatch_command(
+            "start_treesize_scan",
+            &json!({ "path": ".", "max_depth": 2 }),
+        );
+        assert_eq!(start_res.get("ok").and_then(|v| v.as_bool()), Some(true));
+        let scan_id = start_res
+            .get("data")
+            .and_then(|d| d.get("scan_id"))
+            .and_then(|v| v.as_str())
+            .expect("scan_id string");
+        assert!(!scan_id.is_empty());
+
+        let prog_res = dispatch_command(
+            "get_treesize_progress",
+            &json!({ "scan_id": scan_id }),
+        );
+        assert_eq!(prog_res.get("ok").and_then(|v| v.as_bool()), Some(true));
+
+        let cancel_res = dispatch_command(
+            "cancel_treesize_scan",
+            &json!({ "scan_id": scan_id }),
+        );
+        assert_eq!(cancel_res.get("ok").and_then(|v| v.as_bool()), Some(true));
+    }
 }

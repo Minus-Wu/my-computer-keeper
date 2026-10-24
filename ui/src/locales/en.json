@@ -15,7 +15,7 @@
   "重新整理磁碟清單": "Refresh drive list",
   "🌐 網路磁碟 (有限功能)": "🌐 Network drive (limited)",
   "已用 {pct}%": "Used {pct}%",
-  "可用 {size}": "Free {size}",
+  "可用 {size}": "Free: {size}",
   "網路磁碟 (SMB/UNC) 權限檢測": "Network Drive (SMB/UNC) Capability Check",
   "輸入任何本機或遠端 UNC 路徑（如": "Enter any local or remote UNC path (e.g.",
   "），即時查驗系統套用的安全降級策略：": "), and instantly see which safe-mode policy is applied:",
@@ -112,7 +112,6 @@
   "輸入要分析空間的目錄路徑...": "Enter a folder path to analyze...",
   "立即掃描分析": "Scan now",
   "磁碟容量：": "Drive Capacity:",
-  "可用 {size}": "Free: {size}",
   "已掃描檔案：": "Scanned Files:",
   "已分析大小：": "Analyzed Size:",
   "⚠️ 掃描已達項目安全上限，部分深層子目錄未完成統計。": "⚠️ Scan reached safety limit; some deep subdirectories were not fully processed.",
@@ -224,7 +223,6 @@
   "正在掃描磁碟目錄空間...": "Scanning folder disk usage...",
   "遞迴遍歷子資料夾與統計大小中...": "Recursively traversing subdirectories and calculating sizes...",
   "已耗時 {n} 秒": "Elapsed: {n}s",
-  "💡 提示：深層大型目錄或網路磁碟機耗時取決於檔案總數與儲存裝置讀取效能。": "💡 Tip: Deep directories or network shares scan duration depends on total files and device I/O performance.",
   "請輸入或選擇目錄路徑，並點擊「立即掃描分析」以檢視空間佔比與巨型檔案": "Enter or choose a folder path and click \"Analyze Size Now\" to view space distribution and large files",
   "目錄已切換。點擊上方「立即掃描分析」按鈕以分析空間佔比與巨型檔案。": "Directory changed. Click \"Analyze Size Now\" above to analyze space distribution and largest files.",
   "_backend": {
@@ -519,6 +517,18 @@
     "未知的指令: {}": "Unknown command: {}",
     "Rust 核心通訊錯誤 (HTTP {})": "Rust core communication error (HTTP {})",
     "執行指令 {} 失敗": "Command {} failed",
-    "🛡️ 系統保留/受保護空間 (VSS還原點與MFT)": "🛡️ System Protected / Reserved (VSS & MFT)"
-  }
+    "🛡️ 系統保留/受保護空間 (VSS還原點與MFT)": "🛡️ System Protected / Reserved (VSS & MFT)",
+    "操作已由使用者取消": "Operation cancelled by user"
+  },
+  "已取消磁碟空間分析": "Disk space analysis cancelled",
+  "取消分析": "Cancel Scan",
+  "已掃描檔案": "Scanned Files",
+  "已掃描資料夾": "Scanned Folders",
+  "已統計大小": "Calculated Size",
+  "分析速度": "Scan Speed",
+  "當前路徑：": "Current Path:",
+  "預估進度：{percent}%": "Estimated: {percent}%",
+  "{rate} 檔/秒": "{rate} files/s",
+  "💡 提示：已自動略過 Windows Junction 循環與系統虛擬保護區，保障掃描順暢與安全。": "💡 Tip: Windows Junction loops and system virtual zones are bypassed to ensure smooth scan performance.",
+  "空間分析失敗": "Disk analysis failed"
 }

@@ -117,6 +117,34 @@ pub fn dispatch_command(cmd: &str, payload: &Value) -> Value {
             let res: Result<TreeSizeReport, _> = analyze_directory(path, max_depth);
             to_api_value(res)
         }
+        "start_treesize_scan" => {
+            let path = payload
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or(".");
+            let max_depth = payload
+                .get("max_depth")
+                .and_then(|v| v.as_u64())
+                .map(|d| d as usize);
+            let scan_id = keeper_core::treesize::start_scan(path, max_depth);
+            json!({ "ok": true, "data": { "scan_id": scan_id }, "error": null })
+        }
+        "get_treesize_progress" => {
+            let scan_id = payload
+                .get("scan_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            let state = keeper_core::treesize::get_scan_progress(scan_id);
+            json!({ "ok": true, "data": state, "error": null })
+        }
+        "cancel_treesize_scan" => {
+            let scan_id = payload
+                .get("scan_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            let cancelled = keeper_core::treesize::cancel_scan(scan_id);
+            json!({ "ok": true, "data": { "cancelled": cancelled }, "error": null })
+        }
         "get_system_snapshot" => {
             let max_processes = payload
                 .get("max_processes")

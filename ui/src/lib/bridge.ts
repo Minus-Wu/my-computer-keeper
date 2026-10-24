@@ -15,6 +15,7 @@ import type {
   SystemMaintenanceOverview,
   SystemSnapshot,
   TreeSizeReport,
+  TreeSizeScanState,
   VolumeCapabilities,
 } from '../types/keeper';
 
@@ -86,6 +87,19 @@ export const keeperApi = {
     invokeKeeper<TreeSizeReport>('analyze_treesize', {
       path,
       max_depth: maxDepth,
+    }),
+  startTreeSizeScan: (path: string, maxDepth?: number) =>
+    invokeKeeper<{ scan_id: string }>('start_treesize_scan', {
+      path,
+      max_depth: maxDepth,
+    }),
+  getTreeSizeProgress: (scanId: string) =>
+    invokeKeeper<TreeSizeScanState | null>('get_treesize_progress', {
+      scan_id: scanId,
+    }),
+  cancelTreeSizeScan: (scanId: string) =>
+    invokeKeeper<{ cancelled: boolean }>('cancel_treesize_scan', {
+      scan_id: scanId,
     }),
   getSystemSnapshot: (maxProcesses = 80) =>
     invokeKeeper<SystemSnapshot>('get_system_snapshot', {

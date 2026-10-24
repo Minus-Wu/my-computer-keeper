@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 use walkdir::WalkDir;
 
@@ -59,6 +61,35 @@ pub struct TreeSizeReport {
     pub largest_files: Vec<LargestFileItem>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScanStatus {
+    Scanning,
+    Completed,
+    Cancelled,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TreeSizeProgress {
+    pub current_path: String,
+    pub processed_files: usize,
+    pub processed_dirs: usize,
+    pub processed_bytes: u64,
+    pub elapsed_ms: u128,
+    pub estimated_percent: Option<f32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TreeSizeScanState {
+    pub scan_id: String,
+    pub target_path: String,
+    pub status: ScanStatus,
+    pub progress: TreeSizeProgress,
+    pub report: Option<TreeSizeReport>,
+    pub error: Option<String>,
+}
+
 fn category_label(cat: FileCategory) -> &'static str {
     match cat {
         FileCategory::Directory => "資料夾",
@@ -73,12 +104,36 @@ fn category_label(cat: FileCategory) -> &'static str {
     }
 }
 
-/// 執行 TreeSize 磁碟空間分析
-/// 針對本機磁碟提供無項目上限的深度掃描與精準容量對齊；針對網路磁碟機自動套用受控深度與項目上限保護
-pub fn analyze_directory(
+/// 判斷路徑是否為 Windows 重解析點（Reparse Point / Directory Junction / 符號連結）
+/// 避免在走訪如 Application Data 或相容性 Junction 時發生無限迴圈或過度重複計算
+#[cfg(windows)]
+fn is_reparse_point(entry: &walkdir::DirEntry) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    if entry.path_is_symlink() {
+        return true;
+    }
+    if let Ok(meta) = fs::symlink_metadata(entry.path()) {
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        return (meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+    }
+    false
+}
+
+#[cfg(not(windows))]
+fn is_reparse_point(entry: &walkdir::DirEntry) -> bool {
+    entry.path_is_symlink()
+}
+
+/// 執行 TreeSize 磁碟空間分析（支援進度回呼與中途取消）
+pub fn analyze_directory_with_progress<F>(
     path_str: &str,
     custom_max_depth: Option<usize>,
-) -> KeeperResult<TreeSizeReport> {
+    cancel_flag: Option<Arc<AtomicBool>>,
+    mut progress_callback: F,
+) -> KeeperResult<TreeSizeReport>
+where
+    F: FnMut(&TreeSizeProgress),
+{
     let start = Instant::now();
     let root = Path::new(path_str);
     if !root.exists() {
@@ -117,23 +172,64 @@ pub fn analyze_directory(
     let mut largest_files: Vec<LargestFileItem> = Vec::with_capacity(TOP_FILES_LIMIT + 1);
     let mut min_largest_size = 0u64;
 
-    let walker = WalkDir::new(&clean_root)
+    let mut walker = WalkDir::new(&clean_root)
         .max_depth(max_depth)
         .follow_links(false)
         .into_iter();
 
-    for (idx, entry_res) in walker.enumerate() {
-        if idx >= max_entries {
+    let mut last_progress_emit = Instant::now();
+    let mut last_emit_files = 0usize;
+
+    while let Some(entry_res) = walker.next() {
+        if let Some(ref cancel) = cancel_flag {
+            if cancel.load(Ordering::Relaxed) {
+                return Err(KeeperError::OperationCancelled);
+            }
+        }
+
+        if total_files + total_dirs >= max_entries {
             truncated = true;
             break;
         }
+
         let entry = match entry_res {
             Ok(e) => e,
             Err(_) => continue,
         };
+
         let depth = entry.depth();
         if depth == 0 {
             continue;
+        }
+
+        // 避免 Windows Reparse Points (如 Application Data / Junction points) 造成的無限循環或走訪異常
+        if entry.file_type().is_dir() && is_reparse_point(&entry) {
+            walker.skip_current_dir();
+            continue;
+        }
+
+        // 若為磁碟根目錄下的系統保留目錄（無存取權限且易導致 I/O 卡頓），跳過內部深入遞迴
+        if is_root && depth == 1 && entry.file_type().is_dir() {
+            let fname = entry.file_name().to_string_lossy();
+            if fname.eq_ignore_ascii_case("System Volume Information")
+                || fname.eq_ignore_ascii_case("$Recycle.Bin")
+                || fname.eq_ignore_ascii_case("Config.Msi")
+            {
+                walker.skip_current_dir();
+                let first_path = clean_root.join(fname.as_ref());
+                top_child_map.entry(fname.to_string()).or_insert_with(|| {
+                    (
+                        normalize_display_path(&first_path)
+                            .to_string_lossy()
+                            .to_string(),
+                        true,
+                        0,
+                        0,
+                        FileCategory::Directory,
+                    )
+                });
+                continue;
+            }
         }
 
         let meta = match entry.metadata() {
@@ -219,7 +315,47 @@ pub fn analyze_directory(
                 min_largest_size = largest_files.last().map(|f| f.size_bytes).unwrap_or(0);
             }
         }
+
+        // 定期產生進度更新（每隔 80ms 或每累積 300 個項目）
+        let now = Instant::now();
+        if now.duration_since(last_progress_emit).as_millis() >= 80
+            || (total_files.saturating_sub(last_emit_files)) >= 300
+        {
+            last_progress_emit = now;
+            last_emit_files = total_files;
+            let elapsed_ms = start.elapsed().as_millis();
+            let estimated_percent = if is_root {
+                volume_space.and_then(|(_, _, used)| {
+                    if used > 0 {
+                        Some(((total_size_bytes as f64 / used as f64) * 100.0).min(99.9) as f32)
+                    } else {
+                        None
+                    }
+                })
+            } else {
+                None
+            };
+
+            progress_callback(&TreeSizeProgress {
+                current_path: entry.path().to_string_lossy().to_string(),
+                processed_files: total_files,
+                processed_dirs: total_dirs,
+                processed_bytes: total_size_bytes,
+                elapsed_ms,
+                estimated_percent,
+            });
+        }
     }
+
+    // 發出最後一次完整掃描進度
+    progress_callback(&TreeSizeProgress {
+        current_path: clean_root.to_string_lossy().to_string(),
+        processed_files: total_files,
+        processed_dirs: total_dirs,
+        processed_bytes: total_size_bytes,
+        elapsed_ms: start.elapsed().as_millis(),
+        estimated_percent: if is_root { Some(100.0) } else { None },
+    });
 
     let (drive_total_bytes, drive_free_bytes, drive_used_bytes) = match volume_space {
         Some((total, free, used)) => (Some(total), Some(free), Some(used)),
@@ -329,9 +465,166 @@ pub fn analyze_directory(
     })
 }
 
+/// 執行 TreeSize 磁碟空間分析（向後相容版同步 API）
+pub fn analyze_directory(
+    path_str: &str,
+    custom_max_depth: Option<usize>,
+) -> KeeperResult<TreeSizeReport> {
+    analyze_directory_with_progress(path_str, custom_max_depth, None, |_| {})
+}
+
+// ==========================================
+// 全域背景非同步掃描任務管理器
+// ==========================================
+
+struct ActiveScan {
+    scan_id: String,
+    target_path: String,
+    status: ScanStatus,
+    progress: TreeSizeProgress,
+    cancel_flag: Arc<AtomicBool>,
+    report: Option<TreeSizeReport>,
+    error: Option<String>,
+}
+
+static SCAN_STATE: OnceLock<Mutex<Option<ActiveScan>>> = OnceLock::new();
+
+fn get_scan_store() -> &'static Mutex<Option<ActiveScan>> {
+    SCAN_STATE.get_or_init(|| Mutex::new(None))
+}
+
+/// 啟動背景非同步 TreeSize 空間掃描
+pub fn start_scan(path: &str, custom_max_depth: Option<usize>) -> String {
+    let store = get_scan_store();
+    let scan_id = format!(
+        "scan_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    );
+
+    // 若有前一個未完成的掃描，發出取消訊號並終止舊任務
+    {
+        let lock = store.lock().unwrap();
+        if let Some(ref current) = *lock {
+            if current.status == ScanStatus::Scanning {
+                current.cancel_flag.store(true, Ordering::SeqCst);
+            }
+        }
+    }
+
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    let initial_state = ActiveScan {
+        scan_id: scan_id.clone(),
+        target_path: path.to_string(),
+        status: ScanStatus::Scanning,
+        progress: TreeSizeProgress {
+            current_path: path.to_string(),
+            processed_files: 0,
+            processed_dirs: 0,
+            processed_bytes: 0,
+            elapsed_ms: 0,
+            estimated_percent: None,
+        },
+        cancel_flag: Arc::clone(&cancel_flag),
+        report: None,
+        error: None,
+    };
+
+    {
+        let mut lock = store.lock().unwrap();
+        *lock = Some(initial_state);
+    }
+
+    let path_buf = path.to_string();
+    let thread_scan_id = scan_id.clone();
+    let thread_cancel = Arc::clone(&cancel_flag);
+
+    let _ = std::thread::Builder::new()
+        .name("treesize-scanner".to_string())
+        .spawn(move || {
+            let res = analyze_directory_with_progress(
+                &path_buf,
+                custom_max_depth,
+                Some(Arc::clone(&thread_cancel)),
+                |prog| {
+                    let s = get_scan_store();
+                    if let Ok(mut lock) = s.lock() {
+                        if let Some(ref mut scan) = *lock {
+                            if scan.scan_id == thread_scan_id {
+                                scan.progress = prog.clone();
+                            }
+                        }
+                    }
+                },
+            );
+
+            let s = get_scan_store();
+            if let Ok(mut lock) = s.lock() {
+                if let Some(ref mut scan) = *lock {
+                    if scan.scan_id == thread_scan_id {
+                        match res {
+                            Ok(report) => {
+                                scan.status = ScanStatus::Completed;
+                                scan.report = Some(report);
+                            }
+                            Err(KeeperError::OperationCancelled) => {
+                                scan.status = ScanStatus::Cancelled;
+                            }
+                            Err(err) => {
+                                scan.status = ScanStatus::Failed;
+                                scan.error = Some(err.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+    scan_id
+}
+
+/// 查詢背景非同步 TreeSize 掃描進度與狀態
+pub fn get_scan_progress(scan_id: &str) -> Option<TreeSizeScanState> {
+    let store = get_scan_store();
+    let lock = store.lock().ok()?;
+    let scan = lock.as_ref()?;
+    if scan.scan_id != scan_id {
+        return None;
+    }
+    Some(TreeSizeScanState {
+        scan_id: scan.scan_id.clone(),
+        target_path: scan.target_path.clone(),
+        status: scan.status,
+        progress: scan.progress.clone(),
+        report: scan.report.clone(),
+        error: scan.error.clone(),
+    })
+}
+
+/// 取消指定 scan_id 的 TreeSize 空間掃描
+pub fn cancel_scan(scan_id: &str) -> bool {
+    let store = get_scan_store();
+    if let Ok(mut lock) = store.lock() {
+        if let Some(ref mut scan) = *lock {
+            if scan.scan_id == scan_id {
+                scan.cancel_flag.store(true, Ordering::SeqCst);
+                if scan.status == ScanStatus::Scanning {
+                    scan.status = ScanStatus::Cancelled;
+                }
+                return true;
+            }
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicUsize;
     use tempfile::tempdir;
 
     #[test]
@@ -353,6 +646,81 @@ mod tests {
         assert_eq!(report.children[0].size_bytes, 4000);
         assert!(report.parent_path.is_some());
         assert!(!report.is_drive_root);
+    }
+
+    #[test]
+    fn test_treesize_with_progress_callback() {
+        let dir = tempdir().expect("tempdir");
+        let sub = dir.path().join("folder");
+        fs::create_dir_all(&sub).unwrap();
+        for i in 0..10 {
+            fs::write(sub.join(format!("file_{}.txt", i)), vec![0u8; 100]).unwrap();
+        }
+
+        let progress_calls = Arc::new(AtomicUsize::new(0));
+        let progress_calls_clone = Arc::clone(&progress_calls);
+
+        let report = analyze_directory_with_progress(
+            &dir.path().to_string_lossy(),
+            None,
+            None,
+            move |_prog| {
+                progress_calls_clone.fetch_add(1, Ordering::SeqCst);
+            },
+        )
+        .unwrap();
+
+        assert_eq!(report.total_files, 10);
+        assert_eq!(report.total_size_bytes, 1000);
+        assert!(progress_calls.load(Ordering::SeqCst) > 0);
+    }
+
+    #[test]
+    fn test_treesize_cancellation() {
+        let dir = tempdir().expect("tempdir");
+        let sub = dir.path().join("large_dir");
+        fs::create_dir_all(&sub).unwrap();
+        for i in 0..20 {
+            fs::write(sub.join(format!("dummy_{}.bin", i)), vec![1u8; 50]).unwrap();
+        }
+
+        let cancel_flag = Arc::new(AtomicBool::new(true)); // 一開始即標記為取消
+        let res = analyze_directory_with_progress(
+            &dir.path().to_string_lossy(),
+            None,
+            Some(cancel_flag),
+            |_| {},
+        );
+
+        assert!(matches!(res, Err(KeeperError::OperationCancelled)));
+    }
+
+    #[test]
+    fn test_async_scan_manager() {
+        let dir = tempdir().expect("tempdir");
+        let sub = dir.path().join("async_test");
+        fs::create_dir_all(&sub).unwrap();
+        fs::write(sub.join("test.bin"), vec![9u8; 500]).unwrap();
+
+        let scan_id = start_scan(&dir.path().to_string_lossy(), None);
+        assert!(!scan_id.is_empty());
+
+        // 等待背景任務完成
+        let start = Instant::now();
+        loop {
+            if let Some(state) = get_scan_progress(&scan_id) {
+                if state.status == ScanStatus::Completed {
+                    assert_eq!(state.progress.processed_files, 1);
+                    assert_eq!(state.progress.processed_bytes, 500);
+                    assert!(state.report.is_some());
+                    break;
+                }
+            }
+            if start.elapsed().as_secs() > 5 {
+                panic!("Async scan timed out in unit test");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
     }
 
     #[test]

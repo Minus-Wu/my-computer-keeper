@@ -21,6 +21,8 @@ pub enum KeeperError {
     ImageError(String),
     #[error("系統操作失敗: {0}")]
     SystemError(String),
+    #[error("操作已由使用者取消")]
+    OperationCancelled,
 }
 
 impl From<std::io::Error> for KeeperError {

@@ -237,6 +237,26 @@ export interface TreeSizeReport {
   largest_files: LargestFileItem[];
 }
 
+export type TreeSizeScanStatus = 'scanning' | 'completed' | 'cancelled' | 'failed';
+
+export interface TreeSizeProgress {
+  current_path: string;
+  processed_files: number;
+  processed_dirs: number;
+  processed_bytes: number;
+  elapsed_ms: number;
+  estimated_percent: number | null;
+}
+
+export interface TreeSizeScanState {
+  scan_id: string;
+  target_path: string;
+  status: TreeSizeScanStatus;
+  progress: TreeSizeProgress;
+  report: TreeSizeReport | null;
+  error: string | null;
+}
+
 export interface ProcessEntry {
   pid: number;
   parent_pid: number | null;
