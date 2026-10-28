@@ -16,6 +16,7 @@ import type {
   SystemSnapshot,
   TreeSizeReport,
   TreeSizeScanState,
+  VhdxCompactStatus,
   VolumeCapabilities,
 } from '../types/keeper';
 
@@ -144,6 +145,10 @@ export const keeperApi = {
   scanJunk: (path: string) => invokeKeeper<JunkScanReport>('scan_junk', { path }),
   inspectMaintenance: () =>
     invokeKeeper<SystemMaintenanceOverview>('inspect_maintenance'),
+  compactVhdx: (path: string) =>
+    invokeKeeper<VhdxCompactStatus>('compact_vhdx', { path }),
+  getCompactVhdxStatus: () =>
+    invokeKeeper<VhdxCompactStatus>('compact_vhdx_status'),
 };
 
 export function formatBytes(bytes: number): string {
@@ -199,5 +204,4 @@ export function normalizePathKey(p: string): string {
   if (!p) return '';
   return p.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase();
 }
-
 

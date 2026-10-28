@@ -451,3 +451,13 @@ export interface SafeEjectReport {
   message: string;
   advisory: string[];
 }
+
+export type VhdxCompactState = 'idle' | 'running' | 'succeeded' | 'failed';
+
+export interface VhdxCompactStatus {
+  state: VhdxCompactState;
+  path: string;
+  size_before_bytes: number;
+  size_after_bytes: number | null;
+  message: string;
+}

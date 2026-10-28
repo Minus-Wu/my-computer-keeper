@@ -336,10 +336,18 @@ fn run_http_service(
 }
 
 fn main() {
+    let args: Vec<String> = std::env::args().collect();
+
+    // UAC 提權後的虛擬磁碟壓縮子行程：執行完即結束，不啟動 UI 服務
+    if args.get(1).map(String::as_str) == Some(keeper_core::vhdx::COMPACT_WORKER_ARG) {
+        let vhdx = args.get(2).map(String::as_str).unwrap_or_default();
+        let result_file = args.get(3).map(String::as_str).unwrap_or_default();
+        std::process::exit(keeper_core::vhdx::run_compact_worker(vhdx, result_file));
+    }
+
     #[cfg(windows)]
     try_attach_console();
 
-    let args: Vec<String> = std::env::args().collect();
     let headless = args.iter().any(|a| a == "--headless" || a == "--api-only");
     let bind_target = std::env::var("KEEPER_BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:14280".to_string());
 

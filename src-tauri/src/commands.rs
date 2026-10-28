@@ -18,6 +18,7 @@ use keeper_core::taskmgr::{
     get_system_snapshot, kill_process, list_port_bindings, PortBindingEntry, SystemSnapshot,
 };
 use keeper_core::treesize::{ analyze_directory, TreeSizeReport };
+use keeper_core::vhdx::{compact_vhdx_status, start_compact_vhdx};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::path::Path;
@@ -266,6 +267,16 @@ pub fn dispatch_command(cmd: &str, payload: &Value) -> Value {
         "inspect_maintenance" => {
             let overview: SystemMaintenanceOverview = inspect_system_maintenance();
             json!({ "ok": true, "data": overview, "error": null })
+        }
+        "compact_vhdx" => {
+            let path = payload
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            to_api_value(start_compact_vhdx(path))
+        }
+        "compact_vhdx_status" => {
+            json!({ "ok": true, "data": compact_vhdx_status(), "error": null })
         }
         _ => json!({
             "ok": false,

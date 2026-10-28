@@ -32,6 +32,7 @@ import {
   Image as ImageIcon,
   Layers,
   Lock,
+  Minimize2,
   Music,
   Network,
   PieChart,
@@ -77,6 +78,7 @@ import type {
   SystemSnapshot,
   TreeSizeProgress,
   TreeSizeReport,
+  VhdxCompactStatus,
   VolumeCapabilities,
 } from './types/keeper';
 
@@ -236,6 +238,7 @@ export function App() {
       stopTreeSizePolling();
     };
   }, [stopTreeSizePolling]);
+  const [vhdxJob, setVhdxJob] = useState<VhdxCompactStatus | null>(null);
 
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | null = null;
@@ -327,6 +330,10 @@ export function App() {
     keeperApi
       .getDrives()
       .then(setDrives)
+      .catch(() => {});
+    keeperApi
+      .getCompactVhdxStatus()
+      .then(setVhdxJob)
       .catch(() => {});
     loadDirectory();
   }, [loadDirectory]);
@@ -479,6 +486,49 @@ export function App() {
     },
     [treeSizeLoading, runTreeSize]
   );
+
+  const handleCompactVhdx = async (path: string, name: string) => {
+    if (
+      !window.confirm(
+        t("確定要壓縮虛擬磁碟「{name}」嗎？\n\n• 將跳出 UAC 提示，需要系統管理員權限\n• 請先結束 Docker Desktop 並執行 wsl --shutdown，確保虛擬磁碟未被使用\n• 壓縮期間請勿啟動 WSL / Docker", { name })
+      )
+    ) {
+      return;
+    }
+    try {
+      setVhdxJob(await keeperApi.compactVhdx(path));
+      notifyStatus(t("已送出壓縮請求，請在 UAC 視窗中允許系統管理員權限。"));
+    } catch (err) {
+      notifyError(err);
+    }
+  };
+
+  // 壓縮作業於後端背景執行，進行中時輪詢狀態直到完成
+  useEffect(() => {
+    if (vhdxJob?.state !== 'running') return;
+    const timer = setInterval(async () => {
+      try {
+        const status = await keeperApi.getCompactVhdxStatus();
+        if (status.state === 'running') return;
+        setVhdxJob(status);
+        if (status.state === 'succeeded') {
+          const after = status.size_after_bytes ?? status.size_before_bytes;
+          notifyStatus(
+            t("虛擬磁碟壓縮完成：{before} → {after}（釋放 {freed}）", {
+              before: formatBytes(status.size_before_bytes),
+              after: formatBytes(after),
+              freed: formatBytes(Math.max(0, status.size_before_bytes - after)),
+            })
+          );
+        } else if (status.state === 'failed') {
+          notifyError(status.message);
+        }
+      } catch {
+        // 暫時性通訊錯誤，下次輪詢重試
+      }
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [vhdxJob?.state, t]);
 
   // 工作管理員與 Port 監控
   const refreshTaskManager = useCallback(async () => {
@@ -2187,6 +2237,14 @@ export function App() {
                 )}
               </div>
 
+              {vhdxJob?.state === 'running' && (
+                <div className="flex items-center gap-2 p-3.5 rounded-xl bg-cyan-950/40 border border-cyan-600/40 text-cyan-200 text-xs">
+                  <RefreshCw className="w-4 h-4 text-cyan-400 animate-spin shrink-0" />
+                  <span>{t("虛擬磁碟壓縮進行中，請勿啟動 WSL / Docker...")}</span>
+                  <span className="font-mono text-slate-400 truncate">{vhdxJob.path}</span>
+                </div>
+              )}
+
               {/* 掃描進行中狀態（隱藏下方舊結果並呈現即時動態進度） */}
               {treeSizeLoading && (
                 <div className="bg-slate-900/80 border border-cyan-500/30 rounded-2xl p-6 sm:p-8 flex flex-col items-center justify-center text-center space-y-6 shadow-xl shadow-cyan-950/20 backdrop-blur-sm">
@@ -2423,9 +2481,27 @@ export function App() {
                                 {f.path}
                               </div>
                             </div>
-                            <span className="font-mono text-cyan-300 shrink-0">
-                              {formatBytes(f.size_bytes)}
-                            </span>
+                            <div className="flex items-center gap-2 shrink-0">
+                              {/\.vhdx?$/i.test(f.path) && (
+                                <button
+                                  type="button"
+                                  disabled={vhdxJob?.state === 'running'}
+                                  onClick={() => handleCompactVhdx(f.path, f.name)}
+                                  title={t("壓縮虛擬磁碟（需要系統管理員權限）")}
+                                  className="flex items-center gap-1 px-2 py-1 rounded-lg bg-cyan-500/15 border border-cyan-500/40 text-cyan-200 hover:bg-cyan-500/25 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                                >
+                                  <Minimize2 className="w-3.5 h-3.5" />
+                                  <span>
+                                    {vhdxJob?.state === 'running' && vhdxJob.path === f.path
+                                      ? t("壓縮中...")
+                                      : t("壓縮")}
+                                  </span>
+                                </button>
+                              )}
+                              <span className="font-mono text-cyan-300">
+                                {formatBytes(f.size_bytes)}
+                              </span>
+                            </div>
                           </div>
                         ))}
                       </div>
