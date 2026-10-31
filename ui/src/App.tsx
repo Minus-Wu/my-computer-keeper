@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ProcessTable } from './components/ProcessTable';
 import {
   availableLocales,
   detectLocale,
@@ -531,7 +532,7 @@ export function App() {
     setErrorBanner(null);
     try {
       const [snap, portList] = await Promise.all([
-        keeperApi.getSystemSnapshot(100),
+        keeperApi.getSystemSnapshot(500),
         keeperApi.listPorts(),
       ]);
       setSysSnapshot(snap);
@@ -2687,7 +2688,8 @@ export function App() {
                   />
                   <button
                     onClick={refreshTaskManager}
-                    className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 flex items-center gap-1.5"
+                    disabled={loading}
+                    className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 flex items-center gap-1.5 disabled:opacity-40"
                   >
                     <RefreshCw className="w-3.5 h-3.5" />
                     {t("重新整理")}
@@ -2696,61 +2698,8 @@ export function App() {
               </div>
 
               {taskSubTab === 'processes' ? (
-                <div className="border border-slate-800 rounded-2xl overflow-hidden bg-slate-900/40">
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="bg-slate-900 border-b border-slate-800 text-slate-400">
-                        <th className="py-2.5 px-3">PID</th>
-                        <th className="py-2.5 px-3">{t("處理程序名稱")}</th>
-                        <th className="py-2.5 px-3 text-right">CPU %</th>
-                        <th className="py-2.5 px-3 text-right">{t("記憶體")}</th>
-                        <th className="py-2.5 px-3">{t("執行檔路徑")}</th>
-                        <th className="py-2.5 px-3 text-right">{t("操作")}</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800/60">
-                      {(sysSnapshot?.processes ?? [])
-                        .filter(
-                          (p) =>
-                            !taskSearch.trim() ||
-                            p.name
-                              .toLowerCase()
-                              .includes(taskSearch.toLowerCase()) ||
-                            String(p.pid).includes(taskSearch.trim())
-                        )
-                        .map((proc) => (
-                          <tr
-                            key={proc.pid}
-                            className="hover:bg-slate-800/50 text-slate-200"
-                          >
-                            <td className="py-2 px-3 font-mono text-cyan-300">
-                              {proc.pid}
-                            </td>
-                            <td className="py-2 px-3 font-medium">
-                              {proc.name}
-                            </td>
-                            <td className="py-2 px-3 text-right font-mono">
-                              {proc.cpu_usage.toFixed(1)}%
-                            </td>
-                            <td className="py-2 px-3 text-right font-mono text-amber-300">
-                              {formatBytes(proc.memory_bytes)}
-                            </td>
-                            <td className="py-2 px-3 text-slate-400 truncate max-w-xs">
-                              {proc.exe_path || '-'}
-                            </td>
-                            <td className="py-2 px-3 text-right">
-                              <button
-                                onClick={() => handleKillProcess(proc.pid)}
-                                className="px-2.5 py-1 rounded bg-rose-500/20 hover:bg-rose-500/40 text-rose-300"
-                              >
-                                {t("終止行程")}
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
-                </div>
+                <ProcessTable snapshot={sysSnapshot} search={taskSearch}
+                  loading={loading} onKill={handleKillProcess} t={t} />
               ) : (
                 <div className="border border-slate-800 rounded-2xl overflow-hidden bg-slate-900/40">
                   <table className="w-full text-left text-xs">

@@ -267,6 +267,22 @@ export interface ProcessEntry {
   disk_written_bytes: number;
   status: string;
   exe_path: string;
+  virtual_memory_bytes: number;
+  disk_read_bytes_per_sec: number;
+  disk_written_bytes_per_sec: number;
+  start_time: number;
+  run_time_secs: number;
+  command_line: string;
+  working_directory: string;
+  user_name: string | null;
+  thread_count: number | null;
+  handle_count: number | null;
+  priority: string | null;
+  gpu_usage: number | null;
+  gpu_memory_bytes: number | null;
+  gpu_dedicated_memory_bytes: number | null;
+  gpu_shared_memory_bytes: number | null;
+  gpu_engine: string | null;
 }
 
 export interface SystemSnapshot {
@@ -282,6 +298,7 @@ export interface SystemSnapshot {
   used_swap_bytes: number;
   total_processes: number;
   processes: ProcessEntry[];
+  gpu_metrics_notice: string | null;
 }
 
 export interface PortBindingEntry {

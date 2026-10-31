@@ -1,5 +1,5 @@
 // 語系檔完整性檢查：
-//  1. 前端 App.tsx / lib/bridge.ts 中的 t("...") 鍵值必須存在於每個語系檔。
+//  1. 前端 TypeScript 中的 t("...") 鍵值必須存在於每個語系檔。
 //  2. Rust 後端 (crates / src-tauri) 內含中文的字串，必須存在於語系檔的 "_backend" 區塊。
 //     後端文字中的 {} / {0} / {:.1} 佔位符一律正規化為 {}。
 // 用法：node scripts/check-i18n.mjs [--dump-backend]
@@ -14,18 +14,18 @@ const CJK = /[\u4e00-\u9fff]/;
 
 // ---- 前端鍵值 ----
 const used = new Set();
-for (const f of ['App.tsx', 'lib/bridge.ts']) {
-  const text = fs.readFileSync(path.join(src, f), 'utf8');
+for (const f of walk(src, [], /\.(ts|tsx)$/)) {
+  const text = fs.readFileSync(f, 'utf8');
   for (const m of text.matchAll(/\bt\(("(?:[^"\\]|\\.)*")/g)) used.add(JSON.parse(m[1]));
 }
 
 // ---- 後端鍵值 ----
-function walk(dir, out = []) {
+function walk(dir, out = [], extension = /\.rs$/) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     if (e.name === 'target' || e.name === 'node_modules') continue;
     const p = path.join(dir, e.name);
-    if (e.isDirectory()) walk(p, out);
-    else if (e.name.endsWith('.rs')) out.push(p);
+    if (e.isDirectory()) walk(p, out, extension);
+    else if (extension.test(e.name)) out.push(p);
   }
   return out;
 }

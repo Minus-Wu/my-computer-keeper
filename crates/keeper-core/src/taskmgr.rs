@@ -2,7 +2,11 @@ use crate::{KeeperError, KeeperResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::process::Command;
-use sysinfo::{Pid, ProcessesToUpdate, System};
+use sysinfo::{Pid, ProcessesToUpdate, System, Users};
+
+#[cfg(windows)]
+#[path = "taskmgr_windows.rs"]
+mod windows_metrics;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessEntry {
@@ -15,6 +19,22 @@ pub struct ProcessEntry {
     pub disk_written_bytes: u64,
     pub status: String,
     pub exe_path: String,
+    pub virtual_memory_bytes: u64,
+    pub disk_read_bytes_per_sec: f64,
+    pub disk_written_bytes_per_sec: f64,
+    pub start_time: u64,
+    pub run_time_secs: u64,
+    pub command_line: String,
+    pub working_directory: String,
+    pub user_name: Option<String>,
+    pub thread_count: Option<u32>,
+    pub handle_count: Option<u32>,
+    pub priority: Option<String>,
+    pub gpu_usage: Option<f64>,
+    pub gpu_memory_bytes: Option<u64>,
+    pub gpu_dedicated_memory_bytes: Option<u64>,
+    pub gpu_shared_memory_bytes: Option<u64>,
+    pub gpu_engine: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,6 +51,7 @@ pub struct SystemSnapshot {
     pub used_swap_bytes: u64,
     pub total_processes: usize,
     pub processes: Vec<ProcessEntry>,
+    pub gpu_metrics_notice: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,7 +69,20 @@ pub struct PortBindingEntry {
 /// 擷取即時工作管理員系統快照與行程清單
 pub fn get_system_snapshot(max_processes: usize) -> SystemSnapshot {
     let mut sys = System::new_all();
+    #[cfg(windows)]
+    let mut gpu_query = windows_metrics::GpuQuery::new();
+    let sample_start = std::time::Instant::now();
+    // CPU, disk rates, and GPU utilization need two samples of the same counters.
+    std::thread::sleep(
+        sysinfo::MINIMUM_CPU_UPDATE_INTERVAL.max(std::time::Duration::from_millis(250)),
+    );
     sys.refresh_all();
+    let sample_secs = sample_start.elapsed().as_secs_f64();
+    let users = Users::new_with_refreshed_list();
+    #[cfg(windows)]
+    let gpu = gpu_query.sample();
+    #[cfg(windows)]
+    let thread_counts = windows_metrics::thread_counts();
 
     let host_name = System::host_name().unwrap_or_else(|| "Local-PC".to_string());
     let os_version = format!(
@@ -82,7 +116,7 @@ pub fn get_system_snapshot(max_processes: usize) -> SystemSnapshot {
                 pid: p.pid().as_u32(),
                 parent_pid: p.parent().map(|pp| pp.as_u32()),
                 name: p.name().to_string_lossy().to_string(),
-                cpu_usage: p.cpu_usage(),
+                cpu_usage: p.cpu_usage() / sys.cpus().len().max(1) as f32,
                 memory_bytes: p.memory(),
                 disk_read_bytes: disk.total_read_bytes,
                 disk_written_bytes: disk.total_written_bytes,
@@ -91,9 +125,53 @@ pub fn get_system_snapshot(max_processes: usize) -> SystemSnapshot {
                     .exe()
                     .map(|e| e.to_string_lossy().to_string())
                     .unwrap_or_default(),
+                virtual_memory_bytes: p.virtual_memory(),
+                disk_read_bytes_per_sec: disk.read_bytes as f64 / sample_secs,
+                disk_written_bytes_per_sec: disk.written_bytes as f64 / sample_secs,
+                start_time: p.start_time(),
+                run_time_secs: p.run_time(),
+                command_line: p
+                    .cmd()
+                    .iter()
+                    .map(|arg| arg.to_string_lossy())
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                working_directory: p
+                    .cwd()
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                user_name: p
+                    .user_id()
+                    .and_then(|id| users.get_user_by_id(id))
+                    .map(|user| user.name().to_owned()),
+                thread_count: None,
+                handle_count: None,
+                priority: None,
+                gpu_usage: None,
+                gpu_memory_bytes: None,
+                gpu_dedicated_memory_bytes: None,
+                gpu_shared_memory_bytes: None,
+                gpu_engine: None,
             }
         })
         .collect();
+
+    #[cfg(windows)]
+    for process in &mut processes {
+        let native = windows_metrics::process_details(process.pid);
+        process.thread_count = thread_counts.get(&process.pid).copied();
+        process.handle_count = native.0;
+        process.priority = native.1;
+        let metrics = gpu.for_pid(process.pid);
+        process.gpu_usage = metrics.usage;
+        process.gpu_dedicated_memory_bytes = metrics.dedicated;
+        process.gpu_shared_memory_bytes = metrics.shared;
+        process.gpu_memory_bytes = metrics
+            .dedicated
+            .zip(metrics.shared)
+            .map(|(d, s)| d.saturating_add(s));
+        process.gpu_engine = metrics.engine;
+    }
 
     processes.sort_by_key(|a| std::cmp::Reverse(a.memory_bytes));
     processes.truncate(max_processes.clamp(10, 500));
@@ -111,6 +189,12 @@ pub fn get_system_snapshot(max_processes: usize) -> SystemSnapshot {
         used_swap_bytes,
         total_processes,
         processes,
+        #[cfg(windows)]
+        gpu_metrics_notice: gpu.notice,
+        #[cfg(not(windows))]
+        gpu_metrics_notice: Some(
+            "GPU counters are only supported on Windows with a WDDM driver.".into(),
+        ),
     }
 }
 
@@ -229,6 +313,21 @@ mod tests {
         let snap = get_system_snapshot(25);
         assert!(snap.total_memory_bytes > 0);
         assert!(!snap.processes.is_empty());
+        assert!(snap.processes.len() <= 25);
+        for process in snap.processes {
+            assert!(process.cpu_usage.is_finite());
+            assert!(process.disk_read_bytes_per_sec.is_finite());
+            if let Some(usage) = process.gpu_usage {
+                assert!((0.0..=100.0).contains(&usage));
+            }
+            assert_eq!(
+                process.gpu_memory_bytes,
+                process
+                    .gpu_dedicated_memory_bytes
+                    .zip(process.gpu_shared_memory_bytes)
+                    .map(|(dedicated, shared)| dedicated.saturating_add(shared))
+            );
+        }
     }
 
     #[test]
