@@ -86,7 +86,6 @@ type ModuleTab =
   | 'explorer'
   | 'treesize'
   | 'taskmgr'
-  | 'lockhunter'
   | 'sync'
   | 'ops';
 
@@ -264,13 +263,10 @@ export function App() {
   );
   const [taskSearch, setTaskSearch] = useState<string>('');
 
-  // 4. LockHunter 狀態
-  const [lockTargetPath, setLockTargetPath] = useState<string>('');
-  const [lockReport, setLockReport] = useState<LockHunterReport | null>(null);
-
-  // 5. FreeFileSync 狀態
+  // 4. FreeFileSync 狀態
   const [syncLeftPath, setSyncLeftPath] = useState<string>('');
   const [syncRightPath, setSyncRightPath] = useState<string>('');
+  const [syncDriveSide, setSyncDriveSide] = useState<'left' | 'right'>('left');
   const [syncCompareMode, setSyncCompareMode] =
     useState<CompareMode>('time_and_size');
   const [syncStrategy, setSyncStrategy] = useState<SyncStrategy>('mirror');
@@ -280,7 +276,7 @@ export function App() {
   const [syncExecResult, setSyncExecResult] =
     useState<SyncExecutionSummary | null>(null);
 
-  // 6. 電腦本體維運中心 (Ops) 狀態
+  // 5. 電腦本體維運中心 (Ops) 狀態
   const [opsTargetPath, setOpsTargetPath] = useState<string>('');
   const [maintOverview, setMaintOverview] =
     useState<SystemMaintenanceOverview | null>(null);
@@ -307,7 +303,6 @@ export function App() {
       setCurrentPath(data.current_path);
       setPathInput(data.current_path);
       setTreeSizePath((prev) => prev || data.current_path);
-      setLockTargetPath((prev) => prev || data.current_path);
       setSyncLeftPath((prev) => prev || data.current_path);
       setSyncRightPath((prev) => prev || data.current_path);
       setOpsTargetPath((prev) => prev || data.current_path);
@@ -558,26 +553,6 @@ export function App() {
     }
   };
 
-  // LockHunter 檢查
-  const runLockHunter = useCallback(
-    async (overridePath?: string) => {
-      const target = overridePath ?? lockTargetPath ?? currentPath;
-      if (!target) return;
-      setLoading(true);
-      setErrorBanner(null);
-      try {
-        const report = await keeperApi.inspectLocks(target);
-        setLockReport(report);
-        setLockTargetPath(report.target_path);
-      } catch (err) {
-        notifyError(err);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [lockTargetPath, currentPath]
-  );
-
   // 檔案總管就地 LockHunter Modal 處理函式
   const openLockModal = async (targetPath: string) => {
     setLockModalPath(targetPath);
@@ -635,9 +610,6 @@ export function App() {
       notifyStatus(rep.message);
       if (lockModalOpen) {
         await refreshLockModal();
-      }
-      if (activeTab === 'lockhunter') {
-        await runLockHunter();
       }
       await keeperApi.getDrives().then(setDrives).catch(() => {});
     } catch (err) {
@@ -760,8 +732,6 @@ export function App() {
       }
     } else if (activeTab === 'taskmgr' && !sysSnapshot) {
       refreshTaskManager();
-    } else if (activeTab === 'lockhunter' && !lockReport && currentPath) {
-      runLockHunter(currentPath);
     } else if (activeTab === 'ops' && !maintOverview) {
       loadSystemOps();
     }
@@ -771,10 +741,8 @@ export function App() {
     treeSizePath,
     treeSizeReport,
     sysSnapshot,
-    lockReport,
     maintOverview,
     refreshTaskManager,
-    runLockHunter,
     loadSystemOps,
   ]);
 
@@ -791,7 +759,70 @@ export function App() {
     });
   }, [listing, searchFilter]);
 
-  const activeCapabilities = listing?.capabilities ?? null;
+  const updateTreeSizePath = (path: string) => {
+    setTreeSizePath(path);
+    setTreeSizeReport(treeSizeCacheRef.current.get(normalizePathKey(path)) ?? null);
+  };
+
+  const updateSyncPath = (path: string, side: 'left' | 'right') => {
+    if (side === 'left') setSyncLeftPath(path);
+    else setSyncRightPath(path);
+    setSyncReport(null);
+    setSyncExecResult(null);
+  };
+
+  const updateOpsPath = (path: string) => {
+    setOpsTargetPath(path);
+    setJunkReport(null);
+    setDupReport(null);
+  };
+
+  const handleSelectDrive = (path: string) => {
+    switch (activeTab) {
+      case 'explorer':
+        loadDirectory(path);
+        break;
+      case 'treesize':
+        updateTreeSizePath(path);
+        break;
+      case 'sync':
+        updateSyncPath(path, syncDriveSide);
+        break;
+      case 'ops':
+        updateOpsPath(path);
+        break;
+    }
+  };
+
+  const storagePath = activeTab === 'treesize' ? treeSizePath
+    : activeTab === 'sync' ? (syncDriveSide === 'left' ? syncLeftPath : syncRightPath)
+    : activeTab === 'ops' ? opsTargetPath : currentPath;
+  const capabilityPaths = useMemo(() => {
+    const paths = activeTab === 'sync' ? [syncLeftPath, syncRightPath]
+      : activeTab === 'taskmgr' || activeTab === 'explorer' ? [] : [storagePath];
+    return [...new Set(paths.filter(Boolean))];
+  }, [activeTab, storagePath, syncLeftPath, syncRightPath]);
+  const [directoryCapabilities, setDirectoryCapabilities] = useState<{
+    paths: string[];
+    values: VolumeCapabilities[];
+  }>({ paths: [], values: [] });
+
+  useEffect(() => {
+    if (!capabilityPaths.length) return;
+    let cancelled = false;
+    Promise.all(capabilityPaths.map((path) => keeperApi.inspectCapabilities(path)))
+      .then((values) => {
+        if (!cancelled) setDirectoryCapabilities({ paths: capabilityPaths, values });
+      })
+      .catch((err) => {
+        if (!cancelled) notifyError(err);
+      });
+    return () => { cancelled = true; };
+  }, [capabilityPaths]);
+
+  const activeCapabilities = activeTab === 'explorer'
+    ? listing ? [listing.capabilities] : []
+    : directoryCapabilities.paths === capabilityPaths ? directoryCapabilities.values : [];
 
   // 右方預覽區域焦點目標（選中的項目，若無則為當前瀏覽的目錄）
   const previewTarget = useMemo(() => {
@@ -819,7 +850,7 @@ export function App() {
       {/* 頂部系統標題與模組導覽列 */}
       <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur px-4 py-2 flex items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-2">
-          {/* 六大核心模組導覽 Tabs 與位於檔案總管左側的應用程式圖示 */}
+          {/* 核心模組導覽 Tabs 與應用程式圖示 */}
           <nav className="flex flex-wrap items-center gap-1.5 bg-slate-950/80 p-1 rounded-xl border border-slate-800">
             <div
               title="My Computer Keeper"
@@ -832,7 +863,6 @@ export function App() {
               { id: 'explorer', label: t("檔案總管"), icon: Folder },
               { id: 'treesize', label: t("TreeSize 空間分析"), icon: PieChart },
               { id: 'taskmgr', label: t("工作管理員 & Port"), icon: Activity },
-              { id: 'lockhunter', label: t("LockHunter 解鎖"), icon: Unlock },
               { id: 'sync', label: t("FreeFileSync 同步"), icon: FolderSync },
               { id: 'ops', label: t("電腦本體維運中心"), icon: Wrench },
             ].map((tab) => {
@@ -925,26 +955,27 @@ export function App() {
       )}
 
       {/* 網路磁碟機「有限功能」安全降級橫幅（當目前路徑位於網路磁碟或啟用檢測時顯示） */}
-      {activeCapabilities?.is_network_drive && (
-        <div className="bg-amber-950/60 border-b border-amber-700/60 px-5 py-2.5 text-xs text-amber-200 flex flex-col gap-1">
+      {activeCapabilities.map((caps, index) => caps.is_network_drive && (
+        <div key={index} className="bg-amber-950/60 border-b border-amber-700/60 px-5 py-2.5 text-xs text-amber-200 flex flex-col gap-1">
           <div className="flex items-center gap-2 font-semibold text-amber-300">
             <Network className="w-4 h-4" />
             <span>
               {t("🌐 網路磁碟機有限功能模式 (Network Drive Safe Mode) —")}{' '}
-              {activeCapabilities.remote_unc_path ?? currentPath}
+              {caps.remote_unc_path ?? capabilityPaths[index] ?? currentPath}
             </span>
           </div>
           <ul className="list-disc list-inside text-amber-200/90 space-y-0.5">
-            {activeCapabilities.limitations_notice.map((note, idx) => (
+            {caps.limitations_notice.map((note, idx) => (
               <li key={idx}>{tx(note)}</li>
             ))}
           </ul>
         </div>
-      )}
+      ))}
 
       {/* 主內容區 */}
       <div className="flex-1 min-h-0 flex overflow-hidden">
         {/* 左側磁碟機與網路磁碟機狀態欄 */}
+        {activeTab !== 'taskmgr' && (
         <aside className="w-72 border-r border-slate-800 bg-slate-900/50 p-4 flex flex-col gap-4 overflow-y-auto shrink-0">
           <div>
             <div className="flex items-center justify-between mb-2.5">
@@ -952,7 +983,7 @@ export function App() {
                 {t("儲存裝置與網路磁碟")}
               </span>
               <button
-                onClick={() => keeperApi.getDrives().then(setDrives)}
+                onClick={() => keeperApi.getDrives().then(setDrives).catch(notifyError)}
                 className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
                 title={t("重新整理磁碟清單")}
               >
@@ -960,17 +991,35 @@ export function App() {
               </button>
             </div>
 
+            {activeTab === 'sync' && (
+              <label className="block text-xs text-slate-400 mb-3">
+                {t("選擇磁碟套用至")}
+                <select
+                  value={syncDriveSide}
+                  onChange={(e) => setSyncDriveSide(e.target.value === 'right' ? 'right' : 'left')}
+                  className="mt-1.5 w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200"
+                >
+                  <option value="left">{t("左側來源目錄 (Source / Left)")}</option>
+                  <option value="right">{t("右側目標目錄")}</option>
+                </select>
+              </label>
+            )}
+
             <div className="space-y-2.5">
               {drives.map((d) => {
                 const isNet = d.capabilities.is_network_drive;
+                const isSelected = normalizePathKey(storagePath).startsWith(
+                  `${normalizePathKey(d.mount_point)}\\`
+                ) || normalizePathKey(storagePath) === normalizePathKey(d.mount_point);
                 return (
                   <button
                     key={d.mount_point}
-                    onClick={() => {
-                      setActiveTab('explorer');
-                      loadDirectory(d.mount_point);
-                    }}
-                    className="w-full text-left p-3 rounded-xl border border-slate-800 bg-slate-900/90 hover:border-cyan-500/50 transition-all group"
+                    onClick={() => handleSelectDrive(d.mount_point)}
+                    disabled={loading || (activeTab === 'treesize' && treeSizeLoading)}
+                    aria-pressed={isSelected}
+                    className={`w-full text-left p-3 rounded-xl border bg-slate-900/90 hover:border-cyan-500/50 transition-all group disabled:opacity-50 disabled:cursor-not-allowed ${
+                      isSelected ? 'border-cyan-500/70' : 'border-slate-800'
+                    }`}
                   >
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-2">
@@ -1097,6 +1146,7 @@ export function App() {
             )}
           </div>
         </aside>
+        )}
 
         {/* 右側主工作面板 */}
         <main className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
@@ -2125,7 +2175,7 @@ export function App() {
                   )}
 
                   {/* 網路磁碟機永久刪除確認開關 */}
-                  {activeCapabilities?.is_network_drive && (
+                  {listing?.capabilities.is_network_drive && (
                     <label className="flex items-start gap-2 p-3 rounded-xl bg-amber-950/40 border border-amber-800/60 text-xs text-amber-200 cursor-pointer">
                       <input
                         type="checkbox"
@@ -2170,14 +2220,7 @@ export function App() {
                     type="text"
                     value={treeSizePath}
                     disabled={treeSizeLoading}
-                    onChange={(e) => {
-                      const newPath = e.target.value;
-                      setTreeSizePath(newPath);
-                      const key = normalizePathKey(newPath);
-                      if (treeSizeCacheRef.current.has(key)) {
-                        setTreeSizeReport(treeSizeCacheRef.current.get(key)!);
-                      }
-                    }}
+                    onChange={(e) => updateTreeSizePath(e.target.value)}
                     className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-100 disabled:opacity-60"
                     placeholder={t("輸入要分析空間的目錄路徑...")}
                   />
@@ -2776,163 +2819,7 @@ export function App() {
             </div>
           )}
 
-          {/* ==================== 4. LockHunter 檔案佔用解鎖器 ==================== */}
-          {(
-            <div className={activeTab === 'lockhunter' ? "flex-1 overflow-y-auto p-5 space-y-5" : "hidden"}>
-              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 space-y-3">
-                <h2 className="text-sm font-semibold text-white flex items-center gap-2">
-                  <Unlock className="w-4 h-4 text-amber-400" />
-                  {t("LockHunter 檔案與資料夾佔用偵測 (Windows Restart Manager + 行程句柄分析)")}
-                </h2>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={lockTargetPath}
-                    onChange={(e) => setLockTargetPath(e.target.value)}
-                    placeholder={t("輸入無法刪除或移動的檔案/資料夾路徑...")}
-                    className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-100"
-                  />
-                  <button
-                    onClick={() => runLockHunter()}
-                    className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-xs"
-                  >
-                    {t("掃描佔用行程")}
-                  </button>
-                </div>
-              </div>
-
-              {lockReport && (
-                <div className="space-y-4">
-                  <div className="p-4 rounded-2xl border border-slate-800 bg-slate-900/40 flex flex-wrap items-center justify-between gap-4">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        {lockReport.is_locked ? (
-                          <Lock className="w-4 h-4 text-rose-400" />
-                        ) : (
-                          <Unlock className="w-4 h-4 text-emerald-400" />
-                        )}
-                        <span className="font-semibold text-sm text-white">
-                          {lockReport.is_locked
-                            ? t("發現 {n} 個處理程序正在佔用此路徑", { n: lockReport.locking_processes.length })
-                            : t("目前未偵測到任何本機行程鎖定此路徑，可安全操作")}
-                        </span>
-                        <span
-                          className={`text-xs px-2 py-0.5 rounded-full ${
-                            lockReport.scope === 'local_process_only'
-                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                              : 'bg-emerald-500/20 text-emerald-300'
-                          }`}
-                        >
-                          {lockReport.scope === 'local_process_only'
-                            ? t("🌐 網路磁碟：僅限本機行程範圍")
-                            : t("💻 本機完整支援")}
-                        </span>
-                      </div>
-                      <div className="text-xs text-slate-400">
-                        {t("已檢查檔案數：{n} 個", { n: lockReport.scanned_files_count })}
-                      </div>
-                    </div>
-
-                    <button
-                      disabled={!lockReport.capabilities.supports_boot_delete}
-                      onClick={async () => {
-                        try {
-                          const msg = await keeperApi.scheduleBootDelete(
-                            lockReport.target_path
-                          );
-                          notifyStatus(msg);
-                        } catch (err) {
-                          notifyError(err);
-                        }
-                      }}
-                      className="px-3.5 py-2 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-200 hover:bg-rose-500/30 disabled:opacity-40 disabled:cursor-not-allowed text-xs"
-                    >
-                      {lockReport.capabilities.supports_boot_delete
-                        ? t("排程於下次重開機時強制刪除")
-                        : t("🌐 網路磁碟不支援重開機刪除")}
-                    </button>
-                  </div>
-
-                  <div className="space-y-1.5 text-xs text-slate-400">
-                    {lockReport.advisory_notes.map((n, idx) => (
-                      <div key={idx}>{tx(n)}</div>
-                    ))}
-                  </div>
-
-                  {lockReport.locking_processes.length > 0 && (
-                    <div className="border border-slate-800 rounded-2xl overflow-hidden bg-slate-900/40">
-                      <table className="w-full text-left text-xs">
-                        <thead>
-                          <tr className="bg-slate-900 border-b border-slate-800 text-slate-400">
-                            <th className="py-2.5 px-3">PID</th>
-                            <th className="py-2.5 px-3">{t("行程名稱")}</th>
-                            <th className="py-2.5 px-3">{t("類型")}</th>
-                            <th className="py-2.5 px-3">{t("鎖定原因")}</th>
-                            <th className="py-2.5 px-3 text-right">{t("解鎖動作")}</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-800/60">
-                          {lockReport.locking_processes.map((lp) => (
-                            <tr key={lp.pid} className="hover:bg-slate-800/50">
-                              <td className="py-2.5 px-3 font-mono text-amber-300">
-                                {lp.pid}
-                              </td>
-                              <td className="py-2.5 px-3 font-semibold text-white">
-                                {lp.process_name}
-                              </td>
-                              <td className="py-2.5 px-3 text-slate-300">
-                                {lp.app_type}
-                              </td>
-                              <td className="py-2.5 px-3 text-slate-300">
-                                {tx(lp.lock_reason)}
-                              </td>
-                              <td className="py-2.5 px-3 text-right">
-                                {lp.pid === 4 ? (
-                                  <button
-                                    disabled={ejectingDrive !== null}
-                                    onClick={() => handleSafeEjectDrive(lockReport.target_path)}
-                                    className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold flex items-center gap-1 ml-auto"
-                                  >
-                                    <Disc className={`w-3.5 h-3.5 ${ejectingDrive ? 'animate-spin' : ''}`} />
-                                    <span>{t("安全卸載並彈出")}</span>
-                                  </button>
-                                ) : (
-                                  <button
-                                    onClick={async () => {
-                                      await handleKillProcess(lp.pid);
-                                      await runLockHunter();
-                                    }}
-                                    className="px-3 py-1 rounded-lg bg-rose-500 text-white font-semibold hover:bg-rose-400"
-                                  >
-                                    {t("強制終止並解鎖")}
-                                  </button>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-
-                  {isDriveTarget(lockReport.target_path) && (
-                    <div className="pt-2 flex justify-end">
-                      <button
-                        disabled={ejectingDrive !== null}
-                        onClick={() => handleSafeEjectDrive(lockReport.target_path)}
-                        className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-xs flex items-center gap-1.5 shadow-sm transition-colors"
-                      >
-                        <Disc className={`w-4 h-4 ${ejectingDrive ? 'animate-spin' : ''}`} />
-                        <span>{ejectingDrive ? t("正在安全卸載...") : t("⏏️ 安全彈出外接硬碟 (Safe Eject)")}</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ==================== 5. FreeFileSync 智慧檔案同步 ==================== */}
+          {/* ==================== 4. FreeFileSync 智慧檔案同步 ==================== */}
           {(
             <div className={activeTab === 'sync' ? "flex-1 overflow-y-auto p-5 space-y-5" : "hidden"}>
               <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 space-y-4">
@@ -2986,7 +2873,8 @@ export function App() {
                     <input
                       type="text"
                       value={syncLeftPath}
-                      onChange={(e) => setSyncLeftPath(e.target.value)}
+                      onFocus={() => setSyncDriveSide('left')}
+                      onChange={(e) => updateSyncPath(e.target.value, 'left')}
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-100"
                     />
                   </div>
@@ -2997,7 +2885,8 @@ export function App() {
                     <input
                       type="text"
                       value={syncRightPath}
-                      onChange={(e) => setSyncRightPath(e.target.value)}
+                      onFocus={() => setSyncDriveSide('right')}
+                      onChange={(e) => updateSyncPath(e.target.value, 'right')}
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-100"
                     />
                   </div>
@@ -3139,7 +3028,7 @@ export function App() {
             </div>
           )}
 
-          {/* ==================== 6. 電腦本體維運中心 (System Ops) ==================== */}
+          {/* ==================== 5. 電腦本體維運中心 (System Ops) ==================== */}
           {(
             <div className={activeTab === 'ops' ? "flex-1 overflow-y-auto p-5 space-y-5" : "hidden"}>
               {/* 開發垃圾與重複檔案/圖片掃描列 */}
@@ -3152,7 +3041,7 @@ export function App() {
                   <input
                     type="text"
                     value={opsTargetPath}
-                    onChange={(e) => setOpsTargetPath(e.target.value)}
+                    onChange={(e) => updateOpsPath(e.target.value)}
                     placeholder={t("輸入要掃描的工作區目錄路徑...")}
                     className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-100 min-w-[260px]"
                   />

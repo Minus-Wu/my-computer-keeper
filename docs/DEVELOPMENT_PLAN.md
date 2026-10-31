@@ -1,6 +1,6 @@
 # My Computer Keeper (全能電腦維運與檔案管家) 開發計畫書
 
-本專案以 **Rust** 為核心引擎，結合 **Tauri v2 + React + TypeScript + TailwindCSS**（方案 A）打造現代化桌面應用程式，整合 **「檔案總管 + 工作管理員 + TreeSize + LockHunter + FreeFileSync」** 五大工具與 **電腦本體維運中心（System Ops）**，並針對 **網路磁碟機（Network Drive / SMB / UNC）** 提供智慧識別與「有限功能安全降級模式」。
+本專案以 **Rust** 為核心引擎，結合 **Tauri v2 + React + TypeScript + TailwindCSS**（方案 A）打造現代化桌面應用程式，整合 **「檔案總管（內建 LockHunter 解鎖）+ 工作管理員 + TreeSize + FreeFileSync + 電腦本體維運中心（System Ops）」** 五大工具，並針對 **網路磁碟機（Network Drive / SMB / UNC）** 提供智慧識別與「有限功能安全降級模式」。
 
 ---
 
@@ -27,12 +27,15 @@
 
 ---
 
-## 三、 六大核心模組功能規格
+## 三、 五大核心模組功能規格
+
+目錄相關模組共用儲存裝置與網路磁碟側欄，選擇磁碟保留目前模組，只更新對應目標路徑；TreeSize 與維運掃描需手動啟動，FreeFileSync 可選擇左側來源或右側目標，並在路徑變更時清除舊比對結果。工作管理員不顯示此側欄，網路磁碟警示依目前模組的路徑顯示。
 
 1. **📁 檔案總管 (File Explorer & Multi-Format Inspector)**
    - 本機與網路磁碟機自動探索（含容量條、遠端 UNC 路徑顯示、有限功能徽章）。
    - **系統與常見資料夾說明庫**：智慧識別 Windows 核心目錄（System32, SysWOW64, WinSxS, ProgramData, AppData 等）與常用開發/使用者目錄，提供詳細用途、安全警示與直屬項目統計。
    - **全方位預覽支援**：包含圖片 (PNG/JPG/WebP/SVG)、純文字與程式碼 (Markdown/JSON/CSV/Rust/TS 等，含行號與複製)、PDF 內嵌檢視器、ZIP 壓縮檔免解壓目錄清單、影音播放 (MP3/MP4) 與二進位 Hex Dump 檔案特徵碼分析。
+   - **內建 LockHunter 佔用解鎖視窗**：從項目預覽查詢 Windows Restart Manager 與行程工作目錄分析的鎖定行程，支援強制終止、重開機刪除（僅限本機）及磁碟根目錄安全彈出；不提供獨立解鎖分頁。
 2. **📊 高階工作管理員 + Port 獵人 (Task Manager & Port Hunter)**
    - 即時監控 CPU 使用率、記憶體、Swap 與磁碟狀態。
    - 行程管理清單（PID、名稱、CPU%、記憶體、執行路徑），支援搜尋與一鍵終止行程（Kill Process）。
@@ -41,14 +44,11 @@
    - 高速統計目錄結構大小、檔案數、子目錄數。
    - **互動式 Treemap（矩形樹狀圖）** 視覺化呈現各子目錄與檔案佔比。
    - 檔案類型分布統計（圖片、影片、程式碼、壓縮檔、文件、其他）與 Top 20 巨型檔案排行。
-4. **🔓 LockHunter 檔案佔用解鎖器 (File Lock Inspector)**
-   - 整合 Windows **Restart Manager API (`rstrtmgr.dll`)**，輸入或從檔案總管選擇任何檔案/資料夾，即可揪出鎖定該路徑的 Process 清單（PID、名稱、應用程式類型、是否可重啟）。
-   - 支援一鍵強制終止鎖定行程、或排程於下次重開機時刪除（僅限本機磁碟）。
-5. **🔄 FreeFileSync 智慧檔案同步器 (Smart Directory Sync)**
+4. **🔄 FreeFileSync 智慧檔案同步器 (Smart Directory Sync)**
    - 支援左右雙目錄比對（`TimeAndSize` 含網路磁碟 2 秒容差、或 `Blake3Hash` 加密級極速雜湊）。
    - 視覺化差異分類（僅左側、僅右側、左側較新、右側較新、內容不同、完全相同）。
    - 支援 **鏡像 (Mirror)**、**更新 (Update)**、**雙向增補 (Two-Way)** 同步模式與 Dry-Run 預演。
-6. **🛠️ 電腦本體維運中心 (System Maintenance & Ops)**
+5. **🛠️ 電腦本體維運中心 (System Maintenance & Ops)**
    - **開發者與系統垃圾清理**：一鍵掃描指定工作區下的 `target` (Rust)、`node_modules` (Node.js)、`.venv` / `__pycache__` (Python)、`dist` 等大型建置快取，以及系統 `Temp` 暫存區，支援單項或批次清除。
    - **重複檔案與重複圖片搜尋**：利用大小分組 + 首尾快速雜湊 + `BLAKE3` 找出重複檔案與重複圖片。
    - **開機啟動項檢視**與 **系統 `PATH` 環境變數體檢**（自動標示失效路徑或指向網路磁碟機的高延遲路徑）。
