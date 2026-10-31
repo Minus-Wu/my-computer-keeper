@@ -1,37 +1,16 @@
 use crate::drive::inspect_path_capabilities;
 use crate::{KeeperError, KeeperResult};
-use serde::{Deserialize, Serialize};
 use std::path::Path;
-use std::sync::{Mutex, MutexGuard};
+
+pub use crate::vhdx_workflow::{
+    compact_vhdx_status, inspect_compact_environment, retry_vhdx_restore, start_compact_vhdx,
+    VhdxCompactState, VhdxCompactStatus,
+};
 
 /// 主程式收到此參數時，以提權子行程身分執行壓縮並結束
 pub const COMPACT_WORKER_ARG: &str = "--compact-vhdx";
 
 const MSG_IN_USE: &str = "虛擬磁碟正在使用中（WSL / Docker Desktop 可能仍在執行），請先結束 Docker Desktop 並執行 wsl --shutdown 後再試。";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum VhdxCompactState {
-    Idle,
-    Running,
-    Succeeded,
-    Failed,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VhdxCompactStatus {
-    pub state: VhdxCompactState,
-    pub path: String,
-    pub size_before_bytes: u64,
-    pub size_after_bytes: Option<u64>,
-    pub message: String,
-}
-
-static JOB: Mutex<Option<VhdxCompactStatus>> = Mutex::new(None);
-
-fn lock_job() -> MutexGuard<'static, Option<VhdxCompactStatus>> {
-    JOB.lock().unwrap_or_else(|e| e.into_inner())
-}
 
 fn is_virtual_disk_path(path: &Path) -> bool {
     path.extension()
@@ -40,19 +19,7 @@ fn is_virtual_disk_path(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// 取得目前（或最近一次）虛擬磁碟壓縮作業狀態
-pub fn compact_vhdx_status() -> VhdxCompactStatus {
-    lock_job().clone().unwrap_or(VhdxCompactStatus {
-        state: VhdxCompactState::Idle,
-        path: String::new(),
-        size_before_bytes: 0,
-        size_after_bytes: None,
-        message: String::new(),
-    })
-}
-
-/// 於背景啟動虛擬磁碟壓縮（會跳出 UAC 系統管理員授權提示），立即回傳作業狀態供前端輪詢
-pub fn start_compact_vhdx(path_str: &str) -> KeeperResult<VhdxCompactStatus> {
+pub(crate) fn validate_compact_path(path_str: &str) -> KeeperResult<u64> {
     let path = Path::new(path_str);
     if !path.is_file() {
         return Err(KeeperError::PathNotFound(path_str.to_string()));
@@ -68,66 +35,30 @@ pub fn start_compact_vhdx(path_str: &str) -> KeeperResult<VhdxCompactStatus> {
             "網路磁碟機上的虛擬磁碟無法壓縮，請在檔案所在的電腦上執行。".to_string(),
         ));
     }
-    ensure_not_in_use(path)?;
-
-    let size_before = std::fs::metadata(path)
+    std::fs::metadata(path)
         .map(|m| m.len())
-        .map_err(|e| KeeperError::Io(e.to_string()))?;
-
-    let status = {
-        let mut job = lock_job();
-        if matches!(job.as_ref(), Some(j) if j.state == VhdxCompactState::Running) {
-            return Err(KeeperError::SystemError(
-                "已有虛擬磁碟壓縮作業正在進行中，請等待完成。".to_string(),
-            ));
-        }
-        let status = VhdxCompactStatus {
-            state: VhdxCompactState::Running,
-            path: path_str.to_string(),
-            size_before_bytes: size_before,
-            size_after_bytes: None,
-            message: "正在等待系統管理員授權並壓縮虛擬磁碟...".to_string(),
-        };
-        *job = Some(status.clone());
-        status
-    };
-
-    let owned = path_str.to_string();
-    std::thread::spawn(move || {
-        let result = run_elevated_worker(&owned);
-        let size_after = std::fs::metadata(&owned).map(|m| m.len()).ok();
-        if let Some(job) = lock_job().as_mut() {
-            job.size_after_bytes = size_after;
-            match result {
-                Ok(()) => {
-                    job.state = VhdxCompactState::Succeeded;
-                    job.message = "虛擬磁碟壓縮完成。".to_string();
-                }
-                Err(msg) => {
-                    job.state = VhdxCompactState::Failed;
-                    job.message = msg;
-                }
-            }
-        }
-    });
-
-    Ok(status)
+        .map_err(|e| KeeperError::Io(e.to_string()))
 }
 
 #[cfg(windows)]
-fn ensure_not_in_use(path: &Path) -> KeeperResult<()> {
+pub(crate) fn ensure_not_in_use(path: &Path) -> KeeperResult<()> {
     use std::os::windows::fs::OpenOptionsExt;
     const ERROR_SHARING_VIOLATION: i32 = 32;
-    match std::fs::OpenOptions::new().read(true).share_mode(0).open(path) {
+    match std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(0)
+        .open(path)
+    {
         Err(e) if e.raw_os_error() == Some(ERROR_SHARING_VIOLATION) => {
             Err(KeeperError::SystemError(MSG_IN_USE.to_string()))
         }
-        _ => Ok(()),
+        Err(e) => Err(KeeperError::Io(e.to_string())),
+        Ok(_) => Ok(()),
     }
 }
 
 #[cfg(not(windows))]
-fn ensure_not_in_use(_path: &Path) -> KeeperResult<()> {
+pub(crate) fn ensure_not_in_use(_path: &Path) -> KeeperResult<()> {
     Ok(())
 }
 
@@ -139,28 +70,27 @@ fn to_wide(s: &std::ffi::OsStr) -> Vec<u16> {
 
 /// 以 ShellExecuteEx "runas" 自我提權啟動本程式的壓縮子行程並等待結束
 #[cfg(windows)]
-fn run_elevated_worker(vhdx: &str) -> Result<(), String> {
+pub(crate) fn run_elevated_worker(vhdx: &str, progress: impl Fn(u8)) -> Result<(), String> {
     use std::ffi::OsStr;
     use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_CANCELLED};
-    use windows_sys::Win32::System::Threading::{
-        GetExitCodeProcess, WaitForSingleObject, INFINITE,
-    };
+    use windows_sys::Win32::System::Threading::{GetExitCodeProcess, WaitForSingleObject};
     use windows_sys::Win32::UI::Shell::{
         ShellExecuteExW, SEE_MASK_NOASYNC, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::SW_HIDE;
 
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let result_file =
-        std::env::temp_dir().join(format!("keeper-vhdx-{}-{}.txt", std::process::id(), nonce));
+    let scratch = tempfile::Builder::new()
+        .prefix("keeper-vhdx-")
+        .tempdir()
+        .map_err(|e| e.to_string())?;
+    let result_file = scratch.path().join("result.txt");
+    let progress_file = scratch.path().join("progress.txt");
     let params = format!(
-        "{COMPACT_WORKER_ARG} \"{}\" \"{}\"",
+        "{COMPACT_WORKER_ARG} \"{}\" \"{}\" \"{}\"",
         vhdx,
-        result_file.display()
+        result_file.display(),
+        progress_file.display()
     );
 
     let verb = to_wide(OsStr::new("runas"));
@@ -191,13 +121,22 @@ fn run_elevated_worker(vhdx: &str) -> Result<(), String> {
 
     let mut exit_code: u32 = 1;
     unsafe {
-        WaitForSingleObject(info.hProcess, INFINITE);
+        while WaitForSingleObject(info.hProcess, 500)
+            == windows_sys::Win32::Foundation::WAIT_TIMEOUT
+        {
+            if let Ok(text) = std::fs::read_to_string(&progress_file) {
+                if let Ok(percent) = text.trim().parse::<u8>() {
+                    progress(percent.min(100));
+                }
+            }
+        }
         GetExitCodeProcess(info.hProcess, &mut exit_code);
         CloseHandle(info.hProcess);
     }
 
     let detail = std::fs::read_to_string(&result_file).unwrap_or_default();
     let _ = std::fs::remove_file(&result_file);
+    let _ = std::fs::remove_file(&progress_file);
 
     if exit_code == 0 {
         Ok(())
@@ -209,42 +148,49 @@ fn run_elevated_worker(vhdx: &str) -> Result<(), String> {
 }
 
 #[cfg(not(windows))]
-fn run_elevated_worker(_vhdx: &str) -> Result<(), String> {
+pub(crate) fn run_elevated_worker(_vhdx: &str, _progress: impl Fn(u8)) -> Result<(), String> {
     Err("虛擬磁碟壓縮僅支援 Windows 系統。".to_string())
 }
 
 /// 提權子行程進入點：執行壓縮，將結果訊息寫入 result_file，回傳行程結束代碼
-pub fn run_compact_worker(vhdx: &str, result_file: &str) -> i32 {
-    let outcome = if is_virtual_disk_path(Path::new(vhdx)) {
-        compact_virtual_disk(vhdx)
-    } else {
-        Err("僅支援壓縮本機的 .vhdx / .vhd 虛擬磁碟檔案。".to_string())
-    };
+pub fn run_compact_worker(vhdx: &str, result_file: &str, progress_file: &str) -> i32 {
+    let outcome = validate_compact_path(vhdx)
+        .and_then(|_| ensure_not_in_use(Path::new(vhdx)))
+        .map_err(|e| e.to_string())
+        .and_then(|_| compact_virtual_disk(vhdx, progress_file));
     let (code, msg) = match outcome {
         Ok(()) => (0, String::new()),
         Err(msg) => (1, msg),
     };
     if !result_file.is_empty() {
-        let _ = std::fs::write(result_file, msg);
+        if let Err(error) = std::fs::write(result_file, msg) {
+            eprintln!("Cannot write VHDX result: {error}");
+            return 1;
+        }
     }
     code
 }
 
 /// 透過 VirtDisk API：唯讀掛載（不指派磁碟代號）後壓縮，再卸載
 #[cfg(windows)]
-fn compact_virtual_disk(vhdx: &str) -> Result<(), String> {
+fn compact_virtual_disk(vhdx: &str, progress_file: &str) -> Result<(), String> {
     use std::ffi::OsStr;
-    use windows_sys::Win32::Foundation::{CloseHandle, ERROR_SHARING_VIOLATION, ERROR_SUCCESS, HANDLE};
+    use windows_sys::Win32::Foundation::{
+        CloseHandle, ERROR_IO_PENDING, ERROR_SHARING_VIOLATION, ERROR_SUCCESS, HANDLE,
+    };
     use windows_sys::Win32::Storage::Vhd::{
-        AttachVirtualDisk, CompactVirtualDisk, DetachVirtualDisk, OpenVirtualDisk,
-        ATTACH_VIRTUAL_DISK_FLAG_NO_DRIVE_LETTER, ATTACH_VIRTUAL_DISK_FLAG_READ_ONLY,
-        ATTACH_VIRTUAL_DISK_PARAMETERS, ATTACH_VIRTUAL_DISK_VERSION_1,
-        COMPACT_VIRTUAL_DISK_FLAG_NONE, COMPACT_VIRTUAL_DISK_PARAMETERS,
-        COMPACT_VIRTUAL_DISK_VERSION_1, DETACH_VIRTUAL_DISK_FLAG_NONE,
-        OPEN_VIRTUAL_DISK_FLAG_NONE, OPEN_VIRTUAL_DISK_PARAMETERS, OPEN_VIRTUAL_DISK_VERSION_2,
-        VIRTUAL_DISK_ACCESS_NONE, VIRTUAL_STORAGE_TYPE, VIRTUAL_STORAGE_TYPE_DEVICE_UNKNOWN,
+        AttachVirtualDisk, CompactVirtualDisk, DetachVirtualDisk, GetVirtualDiskOperationProgress,
+        OpenVirtualDisk, ATTACH_VIRTUAL_DISK_FLAG_NO_DRIVE_LETTER,
+        ATTACH_VIRTUAL_DISK_FLAG_READ_ONLY, ATTACH_VIRTUAL_DISK_PARAMETERS,
+        ATTACH_VIRTUAL_DISK_VERSION_1, COMPACT_VIRTUAL_DISK_FLAG_NONE,
+        COMPACT_VIRTUAL_DISK_PARAMETERS, COMPACT_VIRTUAL_DISK_VERSION_1,
+        DETACH_VIRTUAL_DISK_FLAG_NONE, OPEN_VIRTUAL_DISK_FLAG_NONE, OPEN_VIRTUAL_DISK_PARAMETERS,
+        OPEN_VIRTUAL_DISK_VERSION_2, VIRTUAL_DISK_ACCESS_NONE, VIRTUAL_DISK_PROGRESS,
+        VIRTUAL_STORAGE_TYPE, VIRTUAL_STORAGE_TYPE_DEVICE_UNKNOWN,
         VIRTUAL_STORAGE_TYPE_VENDOR_UNKNOWN,
     };
+    use windows_sys::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
+    use windows_sys::Win32::System::IO::OVERLAPPED;
 
     let wide_path = to_wide(OsStr::new(vhdx));
     let storage_type = VIRTUAL_STORAGE_TYPE {
@@ -288,12 +234,48 @@ fn compact_virtual_disk(vhdx: &str) -> Result<(), String> {
 
         let mut compact_params: COMPACT_VIRTUAL_DISK_PARAMETERS = std::mem::zeroed();
         compact_params.Version = COMPACT_VIRTUAL_DISK_VERSION_1;
-        let rc = CompactVirtualDisk(
+        let event = CreateEventW(std::ptr::null(), 1, 0, std::ptr::null());
+        if event.is_null() {
+            if attached {
+                DetachVirtualDisk(handle, DETACH_VIRTUAL_DISK_FLAG_NONE, 0);
+            }
+            CloseHandle(handle);
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        let mut overlapped: OVERLAPPED = std::mem::zeroed();
+        overlapped.hEvent = event;
+        let mut rc = CompactVirtualDisk(
             handle,
             COMPACT_VIRTUAL_DISK_FLAG_NONE,
             &compact_params,
-            std::ptr::null(),
+            &overlapped,
         );
+        if rc == ERROR_IO_PENDING {
+            loop {
+                WaitForSingleObject(event, 500);
+                let mut operation: VIRTUAL_DISK_PROGRESS = std::mem::zeroed();
+                let query = GetVirtualDiskOperationProgress(handle, &overlapped, &mut operation);
+                if query != ERROR_SUCCESS {
+                    // The OVERLAPPED storage and disk handle must outlive the operation.
+                    WaitForSingleObject(event, u32::MAX);
+                    rc = query;
+                    break;
+                }
+                if operation.CompletionValue > 0 && !progress_file.is_empty() {
+                    let percent = ((operation.CurrentValue as u128 * 100)
+                        / operation.CompletionValue as u128)
+                        .min(100);
+                    if let Err(error) = std::fs::write(progress_file, percent.to_string()) {
+                        eprintln!("Cannot write VHDX progress: {error}");
+                    }
+                }
+                if operation.OperationStatus != ERROR_IO_PENDING {
+                    rc = operation.OperationStatus;
+                    break;
+                }
+            }
+        }
+        CloseHandle(event);
 
         if attached {
             DetachVirtualDisk(handle, DETACH_VIRTUAL_DISK_FLAG_NONE, 0);
@@ -312,7 +294,7 @@ fn compact_virtual_disk(vhdx: &str) -> Result<(), String> {
 }
 
 #[cfg(not(windows))]
-fn compact_virtual_disk(_vhdx: &str) -> Result<(), String> {
+fn compact_virtual_disk(_vhdx: &str, _progress_file: &str) -> Result<(), String> {
     Err("虛擬磁碟壓縮僅支援 Windows 系統。".to_string())
 }
 

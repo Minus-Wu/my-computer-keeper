@@ -6,6 +6,7 @@ pub mod sync;
 pub mod taskmgr;
 pub mod treesize;
 pub mod vhdx;
+mod vhdx_workflow;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

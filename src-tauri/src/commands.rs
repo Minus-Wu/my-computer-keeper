@@ -18,7 +18,7 @@ use keeper_core::taskmgr::{
     get_system_snapshot, kill_process, list_port_bindings, PortBindingEntry, SystemSnapshot,
 };
 use keeper_core::treesize::{ analyze_directory, TreeSizeReport };
-use keeper_core::vhdx::{compact_vhdx_status, start_compact_vhdx};
+use keeper_core::vhdx::{compact_vhdx_status, inspect_compact_environment, retry_vhdx_restore, start_compact_vhdx};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::path::Path;
@@ -278,6 +278,8 @@ pub fn dispatch_command(cmd: &str, payload: &Value) -> Value {
         "compact_vhdx_status" => {
             json!({ "ok": true, "data": compact_vhdx_status(), "error": null })
         }
+        "inspect_compact_environment" => to_api_value(inspect_compact_environment()),
+        "retry_vhdx_restore" => to_api_value(retry_vhdx_restore()),
         _ => json!({
             "ok": false,
             "data": null,

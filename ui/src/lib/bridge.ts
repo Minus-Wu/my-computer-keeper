@@ -1,4 +1,5 @@
 import type {
+  CompactEnvironment,
   CompareMode,
   DirectoryListing,
   DriveInfo,
@@ -149,6 +150,10 @@ export const keeperApi = {
     invokeKeeper<VhdxCompactStatus>('compact_vhdx', { path }),
   getCompactVhdxStatus: () =>
     invokeKeeper<VhdxCompactStatus>('compact_vhdx_status'),
+  inspectCompactEnvironment: () =>
+    invokeKeeper<CompactEnvironment>('inspect_compact_environment'),
+  retryVhdxRestore: () =>
+    invokeKeeper<VhdxCompactStatus>('retry_vhdx_restore'),
 };
 
 export function formatBytes(bytes: number): string {
@@ -204,4 +209,3 @@ export function normalizePathKey(p: string): string {
   if (!p) return '';
   return p.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase();
 }
-

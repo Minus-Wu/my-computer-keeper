@@ -179,7 +179,11 @@ fn run_desktop_window(app_url: &str) -> Result<(), Box<dyn std::error::Error>> {
             ..
         } = event
         {
-            *control_flow = ControlFlow::Exit;
+            if keeper_core::vhdx::compact_vhdx_status().state == keeper_core::vhdx::VhdxCompactState::Running {
+                window.set_title("VHDX workflow running — please wait before closing");
+            } else {
+                *control_flow = ControlFlow::Exit;
+            }
         }
     });
 }
@@ -267,8 +271,13 @@ fn run_http_service(
 
             // 前端視窗關閉或使用者點擊結束程式
             if cmd == "shutdown" {
-                shutdown_pending.store(true, Ordering::SeqCst);
-                let mut resp = Response::from_string("{\"ok\":true}");
+                let running = keeper_core::vhdx::compact_vhdx_status().state == keeper_core::vhdx::VhdxCompactState::Running;
+                shutdown_pending.store(!running, Ordering::SeqCst);
+                let mut resp = Response::from_string(if running {
+                    "{\"ok\":false,\"error\":\"VHDX workflow is running\"}"
+                } else {
+                    "{\"ok\":true}"
+                }).with_status_code(if running { 409 } else { 200 });
                 resp.add_header(
                     Header::from_bytes(
                         &b"Content-Type"[..],
@@ -342,7 +351,8 @@ fn main() {
     if args.get(1).map(String::as_str) == Some(keeper_core::vhdx::COMPACT_WORKER_ARG) {
         let vhdx = args.get(2).map(String::as_str).unwrap_or_default();
         let result_file = args.get(3).map(String::as_str).unwrap_or_default();
-        std::process::exit(keeper_core::vhdx::run_compact_worker(vhdx, result_file));
+        let progress_file = args.get(4).map(String::as_str).unwrap_or_default();
+        std::process::exit(keeper_core::vhdx::run_compact_worker(vhdx, result_file, progress_file));
     }
 
     #[cfg(windows)]
@@ -400,13 +410,15 @@ fn main() {
 
             loop {
                 std::thread::sleep(Duration::from_millis(1000));
-                if shut.load(Ordering::SeqCst) {
+                let workflow_running = keeper_core::vhdx::compact_vhdx_status().state == keeper_core::vhdx::VhdxCompactState::Running;
+                if shut.load(Ordering::SeqCst) && !workflow_running {
                     std::thread::sleep(Duration::from_millis(1500));
-                    if shut.load(Ordering::SeqCst) {
+                    if shut.load(Ordering::SeqCst)
+                        && keeper_core::vhdx::compact_vhdx_status().state != keeper_core::vhdx::VhdxCompactState::Running {
                         std::process::exit(0);
                     }
                 }
-                if conn.load(Ordering::SeqCst) && start.elapsed() > Duration::from_secs(30) {
+                if conn.load(Ordering::SeqCst) && !workflow_running && start.elapsed() > Duration::from_secs(30) {
                     let now = current_timestamp_secs();
                     let last = act.load(Ordering::SeqCst);
                     if now.saturating_sub(last) > 90 {
@@ -437,6 +449,26 @@ mod tests {
         // 測試 SPA fallback
         let fallback_asset = resolve_static_resource("/treesize/explore", None);
         assert!(fallback_asset.is_some(), "SPA routes should fallback to index.html");
+    }
+
+    #[test]
+    fn test_dispatch_vhdx_status_and_recovery_guards() {
+        let response = dispatch_command("compact_vhdx_status", &json!({}));
+        assert_eq!(response["ok"], true);
+        let data = &response["data"];
+        assert_eq!(data["state"], "idle");
+        assert!(data["progress_percent"].is_null());
+        assert_eq!(data["compact_completed"], false);
+        assert_eq!(data["recovery_required"], false);
+        assert_eq!(data["steps"].as_array().unwrap().len(), 6);
+        assert_eq!(data["steps"][3]["id"], "compact");
+        assert!(data["environment"].get("docker_exe").is_none());
+        let recovery = dispatch_command("retry_vhdx_restore", &json!({}));
+        assert_eq!(recovery["ok"], false);
+        assert!(recovery["error"].as_str().is_some());
+        let invalid = dispatch_command("compact_vhdx", &json!({ "path": "" }));
+        assert_eq!(invalid["ok"], false);
+        assert_eq!(dispatch_command("compact_vhdx_status", &json!({}))["data"]["state"], "idle");
     }
 
     #[test]

@@ -471,10 +471,24 @@ export interface SafeEjectReport {
 
 export type VhdxCompactState = 'idle' | 'running' | 'succeeded' | 'failed';
 
+export interface CompactEnvironment {
+  docker_running: boolean;
+  wsl_distributions: string[];
+}
+
 export interface VhdxCompactStatus {
   state: VhdxCompactState;
   path: string;
   size_before_bytes: number;
   size_after_bytes: number | null;
   message: string;
+  steps: {
+    id: 'inspect' | 'stop_docker' | 'stop_wsl' | 'compact' | 'start_wsl' | 'start_docker';
+    state: 'pending' | 'running' | 'succeeded' | 'skipped' | 'failed';
+    message: string;
+  }[];
+  progress_percent: number | null;
+  compact_completed: boolean;
+  recovery_required: boolean;
+  environment: CompactEnvironment;
 }

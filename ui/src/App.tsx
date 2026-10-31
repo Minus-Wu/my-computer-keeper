@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ProcessTable } from './components/ProcessTable';
+import { VhdxCompactDialog } from './components/VhdxCompactDialog';
 import {
   availableLocales,
   detectLocale,
@@ -239,6 +240,8 @@ export function App() {
     };
   }, [stopTreeSizePolling]);
   const [vhdxJob, setVhdxJob] = useState<VhdxCompactStatus | null>(null);
+  const [vhdxTarget, setVhdxTarget] = useState<{ path: string; name: string } | null>(null);
+  const [vhdxPollError, setVhdxPollError] = useState<string | null>(null);
 
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | null = null;
@@ -329,8 +332,13 @@ export function App() {
       .catch(() => {});
     keeperApi
       .getCompactVhdxStatus()
-      .then(setVhdxJob)
-      .catch(() => {});
+      .then((job) => {
+        setVhdxJob(job);
+        if (job.state === 'running' || job.recovery_required) {
+          setVhdxTarget({ path: job.path, name: job.path.split(/[\\/]/).pop() ?? job.path });
+        }
+      })
+      .catch(notifyError);
     loadDirectory();
   }, [loadDirectory]);
 
@@ -483,29 +491,25 @@ export function App() {
     [treeSizeLoading, runTreeSize]
   );
 
-  const handleCompactVhdx = async (path: string, name: string) => {
-    if (
-      !window.confirm(
-        t("確定要壓縮虛擬磁碟「{name}」嗎？\n\n• 將跳出 UAC 提示，需要系統管理員權限\n• 請先結束 Docker Desktop 並執行 wsl --shutdown，確保虛擬磁碟未被使用\n• 壓縮期間請勿啟動 WSL / Docker", { name })
-      )
-    ) {
+  const handleCompactVhdx = (path: string, name: string) => {
+    if (vhdxJob?.state === 'running' || vhdxJob?.recovery_required) {
+      setVhdxTarget({ path: vhdxJob.path, name: vhdxJob.path.split(/[\\/]/).pop() ?? vhdxJob.path });
       return;
     }
-    try {
-      setVhdxJob(await keeperApi.compactVhdx(path));
-      notifyStatus(t("已送出壓縮請求，請在 UAC 視窗中允許系統管理員權限。"));
-    } catch (err) {
-      notifyError(err);
-    }
+    setVhdxJob(null);
+    setVhdxTarget({ path, name });
   };
 
   // 壓縮作業於後端背景執行，進行中時輪詢狀態直到完成
   useEffect(() => {
     if (vhdxJob?.state !== 'running') return;
-    const timer = setInterval(async () => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
       try {
         const status = await keeperApi.getCompactVhdxStatus();
-        if (status.state === 'running') return;
+        if (cancelled) return;
+        setVhdxPollError(null);
         setVhdxJob(status);
         if (status.state === 'succeeded') {
           const after = status.size_after_bytes ?? status.size_before_bytes;
@@ -519,12 +523,21 @@ export function App() {
         } else if (status.state === 'failed') {
           notifyError(status.message);
         }
-      } catch {
-        // 暫時性通訊錯誤，下次輪詢重試
+      } catch (err) {
+        if (!cancelled) setVhdxPollError(String(err));
       }
-    }, 2000);
-    return () => clearInterval(timer);
+      if (!cancelled) timer = setTimeout(poll, 1000);
+    };
+    timer = setTimeout(poll, 500);
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [vhdxJob?.state, t]);
+
+  useEffect(() => {
+    if (vhdxJob?.state !== 'running') return;
+    const preventUnload = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', preventUnload);
+    return () => window.removeEventListener('beforeunload', preventUnload);
+  }, [vhdxJob?.state]);
 
   // 工作管理員與 Port 監控
   const refreshTaskManager = useCallback(async () => {
@@ -903,6 +916,7 @@ export function App() {
           </select>
 
           <button
+            disabled={vhdxJob?.state === 'running'}
             onClick={() => {
               if (window.confirm(t("確定要結束並關閉程式嗎？"))) {
                 try {
@@ -2281,11 +2295,12 @@ export function App() {
                 )}
               </div>
 
-              {vhdxJob?.state === 'running' && (
+              {(vhdxJob?.state === 'running' || vhdxJob?.recovery_required) && (
                 <div className="flex items-center gap-2 p-3.5 rounded-xl bg-cyan-950/40 border border-cyan-600/40 text-cyan-200 text-xs">
                   <RefreshCw className="w-4 h-4 text-cyan-400 animate-spin shrink-0" />
-                  <span>{t("虛擬磁碟壓縮進行中，請勿啟動 WSL / Docker...")}</span>
+                  <span>{vhdxJob.recovery_required ? t("環境尚未完全復原。可在此重試啟動，不會再次壓縮磁碟。") : t("虛擬磁碟壓縮進行中，請勿啟動 WSL / Docker...")}</span>
                   <span className="font-mono text-slate-400 truncate">{vhdxJob.path}</span>
+                  <button type="button" onClick={() => handleCompactVhdx(vhdxJob.path, vhdxJob.path)} className="shrink-0 underline">{t("開啟壓縮精靈")}</button>
                 </div>
               )}
 
@@ -3186,6 +3201,17 @@ export function App() {
         </main>
       </div>
 
+      {vhdxTarget && (
+        <VhdxCompactDialog
+          path={vhdxTarget.path} name={vhdxTarget.name} job={vhdxJob}
+          t={t} tx={tx} onJob={setVhdxJob} onClose={() => setVhdxTarget(null)}
+        />
+      )}
+      {vhdxPollError && (
+        <div role="alert" className="fixed bottom-4 left-4 right-4 z-[70] rounded-xl bg-rose-950 p-3 text-sm text-rose-200">
+          {t("無法取得壓縮狀態，將自動重試；請勿關閉程式或啟動 WSL／Docker。")} {tx(vhdxPollError)}
+        </div>
+      )}
       {/* 檔案總管就地 LockHunter 佔用解鎖 Modal */}
       {lockModalOpen && (
         <div
