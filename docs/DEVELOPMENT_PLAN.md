@@ -1,6 +1,6 @@
 # My Computer Keeper (全能電腦維運與檔案管家) 開發計畫書
 
-本專案以 **Rust** 為核心引擎，結合 **Tauri v2 + React + TypeScript + TailwindCSS**（方案 A）打造現代化桌面應用程式，整合 **「檔案總管（內建 LockHunter 解鎖）+ 工作管理員 + TreeSize + FreeFileSync + 電腦本體維運中心（System Ops）」** 五大工具，並針對 **網路磁碟機（Network Drive / SMB / UNC）** 提供智慧識別與「有限功能安全降級模式」。
+本專案以 **Rust** 為核心引擎，結合 **Tauri v2 + React + TypeScript + TailwindCSS**（方案 A）打造現代化桌面應用程式，整合 **「檔案總管（內建 LockHunter 解鎖與 TreeSize 空間分析檢視）+ 工作管理員 + FreeFileSync + 電腦本體維運中心（System Ops）」** 核心工具，並針對 **網路磁碟機（Network Drive / SMB / UNC）** 提供智慧識別與「有限功能安全降級模式」。
 
 ---
 
@@ -40,7 +40,8 @@
    - 即時監控 CPU 使用率、記憶體、Swap 與磁碟狀態。
    - 行程管理清單（PID、名稱、CPU%、記憶體、執行路徑），支援搜尋與一鍵終止行程（Kill Process）。
    - **Port 佔用監控**：列出本機所有開啟的 TCP/UDP 連接埠、狀態與對應的 PID/Process，支援開發者快速釋放被佔用的連接埠。
-3. **🍰 TreeSize 磁碟空間分析器 (Disk Space Analyzer)**
+3. **🍰 TreeSize 磁碟空間分析器 (Disk Space Analyzer — 檔案總管中間區塊檢視)**
+   - 整合於檔案總管中間區塊，提供清單模式與空間分析模式切換，支援右側面板折疊與巨型檔案點選即時預覽；不提供獨立 TreeSize 分頁。
    - 高速統計目錄結構大小、檔案數、子目錄數。
    - **互動式 Treemap（矩形樹狀圖）** 視覺化呈現各子目錄與檔案佔比。
    - 檔案類型分布統計（圖片、影片、程式碼、壓縮檔、文件、其他）與 Top 20 巨型檔案排行。

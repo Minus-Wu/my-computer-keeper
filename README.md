@@ -1,12 +1,12 @@
 # My Computer Keeper (全能電腦維運與檔案管家)
 
-結合 **「檔案總管（內建佔用解鎖）+ 工作管理員 (含 Port 獵人) + TreeSize + FreeFileSync + 電腦本體維運中心」** 的現代化桌面應用程式。以 **Rust (`keeper-core`)** 為系統核心引擎，搭配 **Tauri v2 / React + TypeScript + TailwindCSS** 桌面介面（方案 A），並內建 **網路磁碟機 (Network Drive / SMB / UNC) 智慧識別與有限功能降級保護機制**。
+結合 **「檔案總管（內建佔用解鎖與 TreeSize 空間分析檢視）+ 工作管理員 (含 Port 獵人) + FreeFileSync + 電腦本體維運中心」** 的現代化桌面應用程式。以 **Rust (`keeper-core`)** 為系統核心引擎，搭配 **Tauri v2 / React + TypeScript + TailwindCSS** 桌面介面（方案 A），並內建 **網路磁碟機 (Network Drive / SMB / UNC) 智慧識別與有限功能降級保護機制**。
 
 ---
 
 ## ✨ 核心功能一覽
 
-檔案總管、TreeSize、FreeFileSync 與維運中心共用「儲存裝置與網路磁碟」側欄。選擇磁碟只更新目前工具的目標，不會切回檔案總管，也不會自動啟動掃描或同步；FreeFileSync 可指定套用至左側來源或右側目標。工作管理員不顯示目錄側欄。
+檔案總管、FreeFileSync 與維運中心共用「儲存裝置與網路磁碟」側欄。選擇磁碟只更新目前工具的目標，不會自動啟動掃描或同步；FreeFileSync 可指定套用至左側來源或右側目標。工作管理員不顯示目錄側欄。
 
 1. **📁 檔案總管 (`keeper-explorer`)**
    - 自動探索本機磁碟與已掛載的網路磁碟機（解析遠端 `\\Server\Share` UNC 路徑）。
@@ -20,9 +20,10 @@
      - **二進位與未知檔案**：經典 16 進位 Hex Dump 檢視與 Magic Bytes 檔案特徵碼自動分析。
    - **網路磁碟安全護欄**：遠端超過 15 MB 的圖片與大檔預設啟用按需載入保護；刪除遠端檔案時強制提示網路磁碟不支援本機資源回收筒。
    - **內建檔案佔用解鎖（LockHunter 引擎）**：從項目預覽開啟解鎖視窗，以 Windows Restart Manager API 與行程工作目錄分析找出佔用行程；支援強制終止、重開機刪除與磁碟根目錄安全彈出。網路磁碟僅能偵測本機行程，且不支援重開機刪除，不再提供獨立 LockHunter 分頁。
-2. **🍰 TreeSize 磁碟空間分析與 Treemap (`keeper-treesize`)**
+2. **🍰 TreeSize 磁碟空間分析與 Treemap (`keeper-treesize` — 內建於檔案總管中間檢視)**
+   - **檔案總管中間區塊整合檢視**：可在「清單檢視」與「TreeSize 空間分析」雙模式間無縫切換，支援右側詳細面板折疊與巨型檔案點擊預覽，不再提供獨立 TreeSize 分頁。
    - 高速統計目錄空間、檔案類型分布（圖片、影片、程式碼、壓縮檔、文件）與 Top 20 巨型檔案。
-   - **互動式 Treemap（矩形樹狀圖）**：支援點擊子資料夾直接下鑽（Drill-down）分析。
+   - **互動式 Treemap（矩形樹狀圖）**：支援點擊子資料夾直接下鑽（Drill-down）分析並同步檔案總管當前路徑。
    - 針對網路磁碟機自動限制掃描深度與併發數，保護遠端 SMB 伺服器。
    - **VHDX / VHD 壓縮精靈（Windows）**：在巨型檔案清單點擊「壓縮」，即可檢查原本執行中的 Docker／WSL、正常結束 Docker Desktop、執行 `wsl --shutdown`、透過 UAC 提權壓縮，最後重新啟動原本的 WSL 發行版與 Docker Desktop。每個步驟顯示狀態與錯誤；Windows API 有回報時顯示實際百分比，完成後顯示前後容量與釋放空間。
    - 壓縮失敗或取消 UAC 也會嘗試復原環境；復原失敗可在精靈內重試啟動，不會再次壓縮。原本未執行的環境不會額外啟動；Docker 內部 WSL 發行版由 Docker 自行管理。流程中禁止正常關閉程式，但無法防止強制結束、斷電或外部程式重新佔用磁碟。

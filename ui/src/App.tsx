@@ -33,10 +33,12 @@ import {
   HardDrive,
   Image as ImageIcon,
   Layers,
+  List,
   Lock,
   Minimize2,
   Music,
   Network,
+  PanelRight,
   PieChart,
   Power,
   RefreshCw,
@@ -90,6 +92,8 @@ type ModuleTab =
   | 'taskmgr'
   | 'sync'
   | 'ops';
+
+type ExplorerViewMode = 'list' | 'treesize';
 
 const TREEMAP_COLORS = [
   'bg-cyan-500/80 border-cyan-300/40',
@@ -171,6 +175,8 @@ export function App() {
   const [imageZoom, setImageZoom] = useState<number>(100);
   const [copiedText, setCopiedText] = useState<boolean>(false);
   const [textViewMode, setTextViewMode] = useState<'raw' | 'parsed'>('raw');
+  const [explorerViewMode, setExplorerViewMode] = useState<ExplorerViewMode>('list');
+  const [showPreviewPane, setShowPreviewPane] = useState<boolean>(true);
   const [confirmNetworkPermanentDelete, setConfirmNetworkPermanentDelete] =
     useState<boolean>(false);
 
@@ -491,6 +497,50 @@ export function App() {
     [treeSizeLoading, runTreeSize]
   );
 
+  const handleTreeSizeDrillDownAndSync = useCallback(
+    (childPath: string) => {
+      handleTreeSizeDrillDown(childPath);
+      loadDirectory(childPath);
+    },
+    [handleTreeSizeDrillDown, loadDirectory]
+  );
+
+  const handleTreeSizeGoParentAndSync = useCallback(() => {
+    if (!treeSizeParentPath || treeSizeLoading) return;
+    handleTreeSizeGoParent();
+    loadDirectory(treeSizeParentPath);
+  }, [treeSizeParentPath, treeSizeLoading, handleTreeSizeGoParent, loadDirectory]);
+
+  const handleSelectFileFromTopList = async (path: string, name: string, sizeBytes: number) => {
+    try {
+      setPreviewLoading(true);
+      setSelectedEntry({
+        name,
+        path,
+        is_dir: false,
+        size_bytes: sizeBytes,
+        modified_unix: 0,
+        is_symlink: false,
+        readonly: false,
+        is_image: /\.(png|jpe?g|gif|webp|bmp|ico|svg)$/i.test(name),
+        extension: name.split('.').pop()?.toLowerCase() ?? '',
+        category: 'other',
+      });
+      const p = await keeperApi.previewEntry(path);
+      setGeneralPreview(p);
+      if (/\.(png|jpe?g|gif|webp|bmp|ico|svg)$/i.test(name)) {
+        keeperApi.previewImage(path).then(setImagePreview).catch(() => {});
+      } else {
+        setImagePreview(null);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+
   const handleCompactVhdx = (path: string, name: string) => {
     if (vhdxJob?.state === 'running' || vhdxJob?.recovery_required) {
       setVhdxTarget({ path: vhdxJob.path, name: vhdxJob.path.split(/[\\/]/).pop() ?? vhdxJob.path });
@@ -795,6 +845,15 @@ export function App() {
     switch (activeTab) {
       case 'explorer':
         loadDirectory(path);
+        if (explorerViewMode === 'treesize') {
+          setTreeSizePath(path);
+          const key = normalizePathKey(path);
+          if (treeSizeCacheRef.current.has(key)) {
+            setTreeSizeReport(treeSizeCacheRef.current.get(key)!);
+          } else {
+            setTreeSizeReport(null);
+          }
+        }
         break;
       case 'treesize':
         updateTreeSizePath(path);
@@ -839,6 +898,13 @@ export function App() {
     : directoryCapabilities.paths === capabilityPaths ? directoryCapabilities.values : [];
 
   // 右方預覽區域焦點目標（選中的項目，若無則為當前瀏覽的目錄）
+  useEffect(() => {
+    if (activeTab === ('treesize' as ModuleTab)) {
+      setActiveTab('explorer');
+      setExplorerViewMode('treesize');
+    }
+  }, [activeTab]);
+
   const previewTarget = useMemo(() => {
     if (selectedEntry) {
       return {
@@ -875,7 +941,6 @@ export function App() {
 
             {[
               { id: 'explorer', label: t("檔案總管"), icon: Folder },
-              { id: 'treesize', label: t("TreeSize 空間分析"), icon: PieChart },
               { id: 'taskmgr', label: t("工作管理員 & Port"), icon: Activity },
               { id: 'sync', label: t("FreeFileSync 同步"), icon: FolderSync },
               { id: 'ops', label: t("電腦本體維運中心"), icon: Wrench },
@@ -1185,6 +1250,15 @@ export function App() {
                   onSubmit={(e) => {
                     e.preventDefault();
                     loadDirectory(pathInput);
+                    if (explorerViewMode === 'treesize') {
+                      setTreeSizePath(pathInput);
+                      const key = normalizePathKey(pathInput);
+                      if (treeSizeCacheRef.current.has(key)) {
+                        setTreeSizeReport(treeSizeCacheRef.current.get(key)!);
+                      } else {
+                        setTreeSizeReport(null);
+                      }
+                    }
                   }}
                   className="flex-1 flex gap-2 min-w-[260px]"
                 >
@@ -1197,28 +1271,87 @@ export function App() {
                   />
                   <button
                     type="submit"
-                    className="px-3 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs"
+                    className="px-3 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs cursor-pointer"
                   >
                     {t("前往")}
                   </button>
                 </form>
 
-                {/* 搜尋與圖片篩選 */}
-                <div className="relative">
-                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" />
-                  <input
-                    type="text"
-                    value={searchFilter}
-                    onChange={(e) => setSearchFilter(e.target.value)}
-                    placeholder={t("過濾檔案名稱...")}
-                    className="bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 w-44"
-                  />
+                {/* 搜尋與圖片篩選（清單模式專用） */}
+                {explorerViewMode === 'list' && (
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" />
+                    <input
+                      type="text"
+                      value={searchFilter}
+                      onChange={(e) => setSearchFilter(e.target.value)}
+                      placeholder={t("過濾檔案名稱...")}
+                      className="bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 w-44"
+                    />
+                  </div>
+                )}
+
+                {/* 檢視模式切換器：清單檢視 vs TreeSize 空間分析 */}
+                <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setExplorerViewMode('list')}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                      explorerViewMode === 'list'
+                        ? 'bg-cyan-500 text-slate-950 font-semibold shadow-sm shadow-cyan-500/20'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                    }`}
+                    title={t("清單檢視")}
+                  >
+                    <List className="w-3.5 h-3.5" />
+                    <span>{t("清單")}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExplorerViewMode('treesize');
+                      const target = currentPath || treeSizePath;
+                      if (target && treeSizePath !== target) {
+                        setTreeSizePath(target);
+                        const key = normalizePathKey(target);
+                        if (treeSizeCacheRef.current.has(key)) {
+                          setTreeSizeReport(treeSizeCacheRef.current.get(key)!);
+                        } else {
+                          setTreeSizeReport(null);
+                        }
+                      }
+                    }}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                      explorerViewMode === 'treesize'
+                        ? 'bg-cyan-500 text-slate-950 font-semibold shadow-sm shadow-cyan-500/20'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                    }`}
+                    title={t("TreeSize 空間分析")}
+                  >
+                    <PieChart className="w-3.5 h-3.5" />
+                    <span>{t("TreeSize 空間分析")}</span>
+                  </button>
                 </div>
+
+                {/* 右側詳細資訊面板收合切換按鈕 */}
+                <button
+                  type="button"
+                  onClick={() => setShowPreviewPane((prev) => !prev)}
+                  className={`p-2 rounded-xl border text-xs transition-colors shrink-0 cursor-pointer ${
+                    showPreviewPane
+                      ? 'bg-slate-800 border-slate-700 text-cyan-400 hover:bg-slate-700'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+                  }`}
+                  title={showPreviewPane ? t("隱藏詳細資訊面板") : t("顯示詳細資訊面板")}
+                >
+                  <PanelRight className="w-4 h-4" />
+                </button>
               </div>
 
-              {/* 檔案清單 + 右側圖片檢視面板 */}
+              {/* 檔案清單 / TreeSize 空間分析 + 右側圖片檢視面板 */}
               <div className="flex-1 min-h-0 flex overflow-hidden">
-                {/* 檔案表格 */}
+                {explorerViewMode === 'list' ? (
+                /* 檔案表格 */
                 <div className="flex-1 min-w-0 min-h-0 overflow-y-auto p-3">
                   <div className="mb-2 flex items-center justify-between text-xs text-slate-400 px-2">
                     <span>
@@ -1331,8 +1464,393 @@ export function App() {
                     </table>
                   </div>
                 </div>
+                ) : (
+                <div className="flex-1 min-w-0 min-h-0 overflow-y-auto p-4 space-y-4">
+                  {/* 頂部操作與統計列 */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/60 p-3.5 rounded-2xl border border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleTreeSizeGoParentAndSync}
+                        disabled={!treeSizeParentPath || treeSizeLoading}
+                        className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed text-slate-200 transition-colors shrink-0 flex items-center justify-center cursor-pointer"
+                        title={t("回上一層目錄")}
+                      >
+                        <ArrowUp className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!treeSizeLoading) runTreeSize(treeSizePath || currentPath, true);
+                        }}
+                        disabled={treeSizeLoading}
+                        className="px-3.5 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 font-semibold text-xs flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors shadow-md shadow-cyan-500/10"
+                      >
+                        {treeSizeLoading ? (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <PieChart className="w-3.5 h-3.5" />
+                        )}
+                        <span>{treeSizeLoading ? t("掃描分析中...") : t("立即掃描分析")}</span>
+                      </button>
+                    </div>
+
+                    {!treeSizeLoading && treeSizeReport && (
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs">
+                        <div>
+                          {treeSizeReport.is_drive_root && treeSizeReport.drive_total_bytes ? (
+                            <>
+                              <span className="text-slate-400">{t("磁碟容量：")}</span>
+                              <span className="font-bold text-cyan-300 font-mono">
+                                {formatBytes(treeSizeReport.drive_used_bytes ?? 0)}
+                              </span>
+                              <span className="text-slate-500 font-mono text-[11px]">
+                                {' '}/ {formatBytes(treeSizeReport.drive_total_bytes)}
+                              </span>
+                              {treeSizeReport.drive_free_bytes != null && (
+                                <span className="text-emerald-400 font-mono text-[11px] ml-1.5">
+                                  ({t("可用 {size}", { size: formatBytes(treeSizeReport.drive_free_bytes) })})
+                                </span>
+                              )}
+                              <span className="text-slate-400 ml-3">{t("已掃描檔案：")}</span>
+                            </>
+                          ) : (
+                            <span className="text-slate-400">{t("已分析大小：")}</span>
+                          )}
+                          <span className="font-bold text-cyan-300">
+                            {formatBytes(treeSizeReport.total_size_bytes)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400">{t("檔案數：")}</span>
+                          <span className="font-semibold text-white">
+                            {treeSizeReport.total_files.toLocaleString()}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400">{t("耗時：")}</span>
+                          <span className="font-mono text-emerald-300">
+                            {treeSizeReport.scan_duration_ms} ms
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {(vhdxJob?.state === 'running' || vhdxJob?.recovery_required) && (
+                    <div className="flex items-center gap-2 p-3.5 rounded-xl bg-cyan-950/40 border border-cyan-600/40 text-cyan-200 text-xs">
+                      <RefreshCw className="w-4 h-4 text-cyan-400 animate-spin shrink-0" />
+                      <span>{vhdxJob.recovery_required ? t("環境尚未完全復原。可在此重試啟動，不會再次壓縮磁碟。") : t("虛擬磁碟壓縮進行中，請勿啟動 WSL / Docker...")}</span>
+                      <span className="font-mono text-slate-400 truncate">{vhdxJob.path}</span>
+                      <button type="button" onClick={() => handleCompactVhdx(vhdxJob.path, vhdxJob.path)} className="shrink-0 underline">{t("開啟壓縮精靈")}</button>
+                    </div>
+                  )}
+
+                  {/* 掃描進行中狀態（隱藏下方舊結果並呈現即時動態進度） */}
+                  {treeSizeLoading && (
+                    <div className="bg-slate-900/80 border border-cyan-500/30 rounded-2xl p-6 sm:p-8 flex flex-col items-center justify-center text-center space-y-6 shadow-xl shadow-cyan-950/20 backdrop-blur-sm">
+                      <div className="flex flex-col items-center space-y-3">
+                        <div className="relative flex items-center justify-center">
+                          <div className="absolute w-20 h-20 rounded-full bg-cyan-500/20 animate-ping" />
+                          <div className="w-16 h-16 rounded-2xl bg-slate-950 border border-cyan-500/50 flex items-center justify-center text-cyan-400 shadow-lg shadow-cyan-950/50">
+                            <PieChart className="w-8 h-8 animate-pulse text-cyan-400" />
+                          </div>
+                        </div>
+                        <div className="space-y-1 max-w-lg">
+                          <h3 className="text-base sm:text-lg font-semibold text-white flex items-center justify-center gap-2">
+                            <RefreshCw className="w-4 h-4 text-cyan-400 animate-spin" />
+                            <span>{t("正在掃描磁碟目錄空間...")}</span>
+                          </h3>
+                          <p className="text-xs text-slate-400 break-all font-mono px-3 py-1.5 bg-slate-950/80 rounded-lg border border-slate-800 inline-block">
+                            {treeSizeScanTarget || treeSizePath || currentPath}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* 進度條與預估百分比 */}
+                      <div className="w-full max-w-xl space-y-2">
+                        <div className="w-full h-3 bg-slate-950 rounded-full overflow-hidden border border-slate-800 relative p-0.5 shadow-inner">
+                          {treeSizeProgress?.estimated_percent != null ? (
+                            <div
+                              className="h-full bg-gradient-to-r from-cyan-500 via-sky-400 to-emerald-400 rounded-full transition-all duration-200 relative overflow-hidden"
+                              style={{
+                                width: `${Math.min(100, Math.max(3, treeSizeProgress.estimated_percent))}%`,
+                              }}
+                            >
+                              <div className="absolute inset-0 bg-white/20 animate-pulse" />
+                            </div>
+                          ) : (
+                            <div className="h-full bg-gradient-to-r from-cyan-500 via-sky-400 to-cyan-500 rounded-full w-full animate-pulse" />
+                          )}
+                        </div>
+                        <div className="flex justify-between items-center text-xs text-slate-400 px-1 font-mono">
+                          <span>
+                            {treeSizeProgress?.estimated_percent != null
+                              ? t("預估進度：{percent}%", {
+                                  percent: treeSizeProgress.estimated_percent.toFixed(1),
+                                })
+                              : t("遞迴遍歷子資料夾與統計大小中...")}
+                          </span>
+                          <span className="text-cyan-300 font-medium">
+                            {t("已耗時 {n} 秒", {
+                              n: treeSizeProgress
+                                ? (treeSizeProgress.elapsed_ms / 1000).toFixed(1)
+                                : scanElapsedSecs,
+                            })}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* 即時 4 大指標數據卡片 */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full max-w-xl">
+                        <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3 flex flex-col items-center">
+                          <span className="text-[11px] text-slate-400 mb-0.5">{t("已掃描檔案")}</span>
+                          <span className="font-mono text-base font-bold text-white tracking-tight">
+                            {(treeSizeProgress?.processed_files ?? 0).toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3 flex flex-col items-center">
+                          <span className="text-[11px] text-slate-400 mb-0.5">{t("已掃描資料夾")}</span>
+                          <span className="font-mono text-base font-bold text-slate-200 tracking-tight">
+                            {(treeSizeProgress?.processed_dirs ?? 0).toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3 flex flex-col items-center">
+                          <span className="text-[11px] text-slate-400 mb-0.5">{t("已統計大小")}</span>
+                          <span className="font-mono text-base font-bold text-cyan-300 tracking-tight">
+                            {formatBytes(treeSizeProgress?.processed_bytes ?? 0)}
+                          </span>
+                        </div>
+                        <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3 flex flex-col items-center">
+                          <span className="text-[11px] text-slate-400 mb-0.5">{t("分析速度")}</span>
+                          <span className="font-mono text-base font-bold text-emerald-400 tracking-tight">
+                            {treeSizeScanRate > 0
+                              ? t("{rate} 檔/秒", { rate: treeSizeScanRate.toLocaleString() })
+                              : "..."}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* 即時走訪路徑指示 */}
+                      <div className="w-full max-w-xl bg-slate-950/90 border border-slate-800/90 rounded-xl px-3.5 py-2 flex items-center gap-2 text-left text-xs">
+                        <Gauge className="w-3.5 h-3.5 text-cyan-400 shrink-0 animate-spin" />
+                        <span className="text-slate-500 shrink-0 font-medium">{t("當前路徑：")}</span>
+                        <span className="font-mono text-slate-300 truncate">
+                          {treeSizeProgress?.current_path || treeSizeScanTarget || treeSizePath || currentPath}
+                        </span>
+                      </div>
+
+                      {/* 取消按鈕 */}
+                      <div className="pt-1 flex items-center justify-center">
+                        <button
+                          type="button"
+                          onClick={handleCancelTreeSize}
+                          className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 border border-rose-600/50 hover:border-rose-500 text-rose-200 hover:text-white text-xs font-semibold shadow-md transition-all cursor-pointer"
+                        >
+                          <XCircle className="w-4 h-4 text-rose-400" />
+                          <span>{t("取消分析")}</span>
+                        </button>
+                      </div>
+
+                      <p className="text-[11px] text-slate-500 max-w-md">
+                        {t("💡 提示：已自動略過 Windows Junction 循環與系統虛擬保護區，保障掃描順暢與安全。")}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* 掃描完成後呈現分析結果 */}
+                  {!treeSizeLoading && treeSizeReport && (
+                    <>
+                      {treeSizeReport.truncated_by_safety_limit && (
+                        <div className="flex items-center gap-2 p-3.5 rounded-xl bg-amber-950/40 border border-amber-600/40 text-amber-200 text-xs">
+                          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                          <span>{t("⚠️ 掃描已達項目安全上限，部分深層子目錄未完成統計。")}</span>
+                        </div>
+                      )}
+                      {/* 互動式 Treemap 矩形樹狀圖 */}
+                      <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 space-y-3">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <div className="flex items-center gap-2.5">
+                            <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                              <Layers className="w-4 h-4 text-cyan-400" />
+                              {t("互動式 Treemap 空間佔比矩形圖（點擊子資料夾可下鑽分析）")}
+                            </h3>
+                            {treeSizeParentPath && (
+                              <button
+                                type="button"
+                                onClick={handleTreeSizeGoParentAndSync}
+                                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700 hover:border-slate-600 transition-colors cursor-pointer"
+                                title={t("回上一層目錄")}
+                              >
+                                <ArrowUp className="w-3.5 h-3.5" />
+                                <span>{t("回上一層")}</span>
+                              </button>
+                            )}
+                          </div>
+                          {treeSizeReport.capabilities.is_network_drive && (
+                            <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                              {t("🌐 網路磁碟受控掃描 (最大深度 {depth} 層)", {
+                                depth: treeSizeReport.capabilities.max_scan_depth,
+                              })}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap gap-2 min-h-[180px] p-2 rounded-xl bg-slate-950 border border-slate-800">
+                          {treeSizeReport.children.slice(0, 12).map((node, i) => {
+                            const flexBasis = Math.max(
+                              12,
+                              Math.min(100, node.percentage)
+                            );
+                            const colorClass =
+                              TREEMAP_COLORS[i % TREEMAP_COLORS.length];
+                            return (
+                              <button
+                                key={node.path}
+                                onClick={() => {
+                                  if (node.is_dir) {
+                                    handleTreeSizeDrillDownAndSync(node.path);
+                                  }
+                                }}
+                                style={{ flexGrow: Math.round(flexBasis), flexBasis: `${flexBasis}%` }}
+                                className={`p-3 rounded-xl border text-left transition-transform ${node.is_dir ? 'hover:scale-[1.01] cursor-pointer' : 'cursor-default opacity-95'} flex flex-col justify-between min-w-[140px] min-h-[84px] ${colorClass}`}
+                              >
+                                <div className="flex items-center justify-between gap-1">
+                                  <span className="font-bold text-xs text-white truncate">
+                                    {node.is_dir ? '📁 ' : '📄 '}
+                                    {node.name}
+                                  </span>
+                                  <span className="text-[11px] font-mono bg-slate-950/50 px-1.5 py-0.5 rounded text-white">
+                                    {node.percentage.toFixed(1)}%
+                                  </span>
+                                </div>
+                                <div className="text-xs font-mono text-white/90 mt-2">
+                                  {formatBytes(node.size_bytes)} ({t("{n} 檔", { n: node.file_count })})
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* 左右雙欄：檔案類型統計 + Top 巨型檔案 */}
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 space-y-3">
+                          <h3 className="text-sm font-semibold text-white">
+                            {t("依檔案類型空間分布")}
+                          </h3>
+                          <div className="space-y-2.5 text-xs">
+                            {treeSizeReport.category_breakdown.map((cat) => (
+                              <div key={cat.category} className="space-y-1">
+                                <div className="flex justify-between">
+                                  <span className="text-slate-200 font-medium">
+                                    {tx(cat.label)} ({t("{n} 檔", { n: cat.file_count })})
+                                  </span>
+                                  <span className="font-mono text-slate-300">
+                                    {formatBytes(cat.size_bytes)} (
+                                    {cat.percentage.toFixed(1)}%)
+                                  </span>
+                                </div>
+                                <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                                  <div
+                                    className="h-full bg-cyan-400 rounded-full"
+                                    style={{
+                                      width: `${Math.max(2, cat.percentage)}%`,
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 space-y-3">
+                          <h3 className="text-sm font-semibold text-white">
+                            {t("Top 20 巨型檔案排行榜")}
+                          </h3>
+                          <div className="space-y-1.5 max-h-72 overflow-y-auto text-xs">
+                            {treeSizeReport.largest_files.map((f) => (
+                              <div
+                                key={f.path}
+                                onClick={() => handleSelectFileFromTopList(f.path, f.name, f.size_bytes)}
+                                className="flex items-center justify-between p-2 rounded-lg bg-slate-950/70 border border-slate-800/80 hover:border-cyan-500/50 hover:bg-slate-900/60 transition-colors cursor-pointer group"
+                                title={t("項目預覽與詳細資訊")}
+                              >
+                                <div className="truncate pr-3">
+                                  <div className="font-medium text-slate-200 group-hover:text-cyan-300 truncate transition-colors">
+                                    {f.name}
+                                  </div>
+                                  <div className="text-[11px] text-slate-500 truncate">
+                                    {f.path}
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  {/\.vhdx?$/i.test(f.path) && (
+                                    <button
+                                      type="button"
+                                      disabled={vhdxJob?.state === 'running'}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleCompactVhdx(f.path, f.name);
+                                      }}
+                                      title={t("壓縮虛擬磁碟（需要系統管理員權限）")}
+                                      className="flex items-center gap-1 px-2 py-1 rounded-lg bg-cyan-500/15 border border-cyan-500/40 text-cyan-200 hover:bg-cyan-500/25 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                                    >
+                                      <Minimize2 className="w-3.5 h-3.5" />
+                                      <span>
+                                        {vhdxJob?.state === 'running' && vhdxJob.path === f.path
+                                          ? t("壓縮中...")
+                                          : t("壓縮")}
+                                      </span>
+                                    </button>
+                                  )}
+                                  <span className="font-mono text-cyan-300">
+                                    {formatBytes(f.size_bytes)}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {/* 尚未掃描或切換目錄後的狀態提示 */}
+                  {!treeSizeLoading && !treeSizeReport && (
+                    <div className="p-12 text-center text-slate-400 text-xs bg-slate-900/40 rounded-2xl border border-slate-800/60 flex flex-col items-center justify-center space-y-3">
+                      <div className="w-12 h-12 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-center text-slate-500">
+                        <PieChart className="w-6 h-6" />
+                      </div>
+                      <div className="max-w-md space-y-1">
+                        <p className="text-slate-300 font-medium">
+                          {treeSizePath || currentPath
+                            ? t("目錄已切換。點擊上方「立即掃描分析」按鈕以分析空間佔比與巨型檔案。")
+                            : t("請輸入或選擇目錄路徑，並點擊「立即掃描分析」以檢視空間佔比與巨型檔案")}
+                        </p>
+                        {(treeSizePath || currentPath) && (
+                          <p className="text-[11px] font-mono text-slate-500 break-all">
+                            {treeSizePath || currentPath}
+                          </p>
+                        )}
+                      </div>
+                      {(treeSizePath || currentPath) && (
+                        <button
+                          type="button"
+                          onClick={() => runTreeSize(treeSizePath || currentPath, true)}
+                          className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs flex items-center gap-1.5 cursor-pointer transition-colors shadow-md shadow-cyan-500/10"
+                        >
+                          <PieChart className="w-4 h-4" />
+                          <span>{t("立即掃描分析")}</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+                )}
 
                 {/* 右側項目預覽與詳情檢視面板 */}
+                {showPreviewPane && (
                 <div className="w-96 lg:w-[480px] xl:w-[520px] border-l border-slate-800 bg-slate-900/60 p-4 flex flex-col gap-4 overflow-y-auto shrink-0">
                   <div className="flex items-center justify-between pb-1 border-b border-slate-800/80">
                     <div className="flex items-center gap-2 font-semibold text-sm text-white">
@@ -1515,11 +2033,12 @@ export function App() {
                       {previewTarget.isDir && (
                         <button
                           onClick={() => {
+                            loadDirectory(previewTarget.path);
+                            setExplorerViewMode('treesize');
                             setTreeSizePath(previewTarget.path);
-                            setActiveTab('treesize');
-                            runTreeSize(previewTarget.path);
+                            runTreeSize(previewTarget.path, true);
                           }}
-                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/30 text-xs font-medium transition-colors"
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/30 text-xs font-medium transition-colors cursor-pointer"
                           title={t("分析此目錄空間")}
                         >
                           <PieChart className="w-3.5 h-3.5" />
@@ -2206,399 +2725,9 @@ export function App() {
                     </label>
                   )}
                 </div>
-
-              </div>
-            </div>
-          )}
-
-          {/* ==================== 2. TreeSize 磁碟空間分析與 Treemap ==================== */}
-          {(
-            <div className={activeTab === 'treesize' ? "flex-1 overflow-y-auto p-5 space-y-5" : "hidden"}>
-              <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/60 p-4 rounded-2xl border border-slate-800">
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    if (!treeSizeLoading) runTreeSize(treeSizePath, true);
-                  }}
-                  className="flex-1 flex gap-2 min-w-[280px]"
-                >
-                  <button
-                    type="button"
-                    onClick={handleTreeSizeGoParent}
-                    disabled={!treeSizeParentPath || treeSizeLoading}
-                    className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed text-slate-200 transition-colors shrink-0 flex items-center justify-center cursor-pointer"
-                    title={t("回上一層目錄")}
-                  >
-                    <ArrowUp className="w-4 h-4" />
-                  </button>
-                  <input
-                    type="text"
-                    value={treeSizePath}
-                    disabled={treeSizeLoading}
-                    onChange={(e) => updateTreeSizePath(e.target.value)}
-                    className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-100 disabled:opacity-60"
-                    placeholder={t("輸入要分析空間的目錄路徑...")}
-                  />
-                  <button
-                    type="submit"
-                    disabled={treeSizeLoading}
-                    className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 font-semibold text-xs flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors shadow-md shadow-cyan-500/10"
-                  >
-                    {treeSizeLoading ? (
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <PieChart className="w-4 h-4" />
-                    )}
-                    <span>{treeSizeLoading ? t("掃描分析中...") : t("立即掃描分析")}</span>
-                  </button>
-                </form>
-
-                {!treeSizeLoading && treeSizeReport && (
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs">
-                    <div>
-                      {treeSizeReport.is_drive_root && treeSizeReport.drive_total_bytes ? (
-                        <>
-                          <span className="text-slate-400">{t("磁碟容量：")}</span>
-                          <span className="font-bold text-cyan-300 font-mono">
-                            {formatBytes(treeSizeReport.drive_used_bytes ?? 0)}
-                          </span>
-                          <span className="text-slate-500 font-mono text-[11px]">
-                            {' '}/ {formatBytes(treeSizeReport.drive_total_bytes)}
-                          </span>
-                          {treeSizeReport.drive_free_bytes != null && (
-                            <span className="text-emerald-400 font-mono text-[11px] ml-1.5">
-                              ({t("可用 {size}", { size: formatBytes(treeSizeReport.drive_free_bytes) })})
-                            </span>
-                          )}
-                          <span className="text-slate-400 ml-3">{t("已掃描檔案：")}</span>
-                        </>
-                      ) : (
-                        <span className="text-slate-400">{t("已分析大小：")}</span>
-                      )}
-                      <span className="font-bold text-cyan-300">
-                        {formatBytes(treeSizeReport.total_size_bytes)}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-slate-400">{t("檔案數：")}</span>
-                      <span className="font-semibold text-white">
-                        {treeSizeReport.total_files.toLocaleString()}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-slate-400">{t("耗時：")}</span>
-                      <span className="font-mono text-emerald-300">
-                        {treeSizeReport.scan_duration_ms} ms
-                      </span>
-                    </div>
-                  </div>
                 )}
+
               </div>
-
-              {(vhdxJob?.state === 'running' || vhdxJob?.recovery_required) && (
-                <div className="flex items-center gap-2 p-3.5 rounded-xl bg-cyan-950/40 border border-cyan-600/40 text-cyan-200 text-xs">
-                  <RefreshCw className="w-4 h-4 text-cyan-400 animate-spin shrink-0" />
-                  <span>{vhdxJob.recovery_required ? t("環境尚未完全復原。可在此重試啟動，不會再次壓縮磁碟。") : t("虛擬磁碟壓縮進行中，請勿啟動 WSL / Docker...")}</span>
-                  <span className="font-mono text-slate-400 truncate">{vhdxJob.path}</span>
-                  <button type="button" onClick={() => handleCompactVhdx(vhdxJob.path, vhdxJob.path)} className="shrink-0 underline">{t("開啟壓縮精靈")}</button>
-                </div>
-              )}
-
-              {/* 掃描進行中狀態（隱藏下方舊結果並呈現即時動態進度） */}
-              {treeSizeLoading && (
-                <div className="bg-slate-900/80 border border-cyan-500/30 rounded-2xl p-6 sm:p-8 flex flex-col items-center justify-center text-center space-y-6 shadow-xl shadow-cyan-950/20 backdrop-blur-sm">
-                  <div className="flex flex-col items-center space-y-3">
-                    <div className="relative flex items-center justify-center">
-                      <div className="absolute w-20 h-20 rounded-full bg-cyan-500/20 animate-ping" />
-                      <div className="w-16 h-16 rounded-2xl bg-slate-950 border border-cyan-500/50 flex items-center justify-center text-cyan-400 shadow-lg shadow-cyan-950/50">
-                        <PieChart className="w-8 h-8 animate-pulse text-cyan-400" />
-                      </div>
-                    </div>
-                    <div className="space-y-1 max-w-lg">
-                      <h3 className="text-base sm:text-lg font-semibold text-white flex items-center justify-center gap-2">
-                        <RefreshCw className="w-4 h-4 text-cyan-400 animate-spin" />
-                        <span>{t("正在掃描磁碟目錄空間...")}</span>
-                      </h3>
-                      <p className="text-xs text-slate-400 break-all font-mono px-3 py-1.5 bg-slate-950/80 rounded-lg border border-slate-800 inline-block">
-                        {treeSizeScanTarget || treeSizePath}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* 進度條與預估百分比 */}
-                  <div className="w-full max-w-xl space-y-2">
-                    <div className="w-full h-3 bg-slate-950 rounded-full overflow-hidden border border-slate-800 relative p-0.5 shadow-inner">
-                      {treeSizeProgress?.estimated_percent != null ? (
-                        <div
-                          className="h-full bg-gradient-to-r from-cyan-500 via-sky-400 to-emerald-400 rounded-full transition-all duration-200 relative overflow-hidden"
-                          style={{
-                            width: `${Math.min(100, Math.max(3, treeSizeProgress.estimated_percent))}%`,
-                          }}
-                        >
-                          <div className="absolute inset-0 bg-white/20 animate-pulse" />
-                        </div>
-                      ) : (
-                        <div className="h-full bg-gradient-to-r from-cyan-500 via-sky-400 to-cyan-500 rounded-full w-full animate-pulse" />
-                      )}
-                    </div>
-                    <div className="flex justify-between items-center text-xs text-slate-400 px-1 font-mono">
-                      <span>
-                        {treeSizeProgress?.estimated_percent != null
-                          ? t("預估進度：{percent}%", {
-                              percent: treeSizeProgress.estimated_percent.toFixed(1),
-                            })
-                          : t("遞迴遍歷子資料夾與統計大小中...")}
-                      </span>
-                      <span className="text-cyan-300 font-medium">
-                        {t("已耗時 {n} 秒", {
-                          n: treeSizeProgress
-                            ? (treeSizeProgress.elapsed_ms / 1000).toFixed(1)
-                            : scanElapsedSecs,
-                        })}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* 即時 4 大指標數據卡片 */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full max-w-xl">
-                    <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3 flex flex-col items-center">
-                      <span className="text-[11px] text-slate-400 mb-0.5">{t("已掃描檔案")}</span>
-                      <span className="font-mono text-base font-bold text-white tracking-tight">
-                        {(treeSizeProgress?.processed_files ?? 0).toLocaleString()}
-                      </span>
-                    </div>
-                    <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3 flex flex-col items-center">
-                      <span className="text-[11px] text-slate-400 mb-0.5">{t("已掃描資料夾")}</span>
-                      <span className="font-mono text-base font-bold text-slate-200 tracking-tight">
-                        {(treeSizeProgress?.processed_dirs ?? 0).toLocaleString()}
-                      </span>
-                    </div>
-                    <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3 flex flex-col items-center">
-                      <span className="text-[11px] text-slate-400 mb-0.5">{t("已統計大小")}</span>
-                      <span className="font-mono text-base font-bold text-cyan-300 tracking-tight">
-                        {formatBytes(treeSizeProgress?.processed_bytes ?? 0)}
-                      </span>
-                    </div>
-                    <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3 flex flex-col items-center">
-                      <span className="text-[11px] text-slate-400 mb-0.5">{t("分析速度")}</span>
-                      <span className="font-mono text-base font-bold text-emerald-400 tracking-tight">
-                        {treeSizeScanRate > 0
-                          ? t("{rate} 檔/秒", { rate: treeSizeScanRate.toLocaleString() })
-                          : "..."}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* 即時走訪路徑指示 */}
-                  <div className="w-full max-w-xl bg-slate-950/90 border border-slate-800/90 rounded-xl px-3.5 py-2 flex items-center gap-2 text-left text-xs">
-                    <Gauge className="w-3.5 h-3.5 text-cyan-400 shrink-0 animate-spin" />
-                    <span className="text-slate-500 shrink-0 font-medium">{t("當前路徑：")}</span>
-                    <span className="font-mono text-slate-300 truncate">
-                      {treeSizeProgress?.current_path || treeSizeScanTarget || treeSizePath}
-                    </span>
-                  </div>
-
-                  {/* 取消按鈕 */}
-                  <div className="pt-1 flex items-center justify-center">
-                    <button
-                      type="button"
-                      onClick={handleCancelTreeSize}
-                      className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 border border-rose-600/50 hover:border-rose-500 text-rose-200 hover:text-white text-xs font-semibold shadow-md transition-all cursor-pointer"
-                    >
-                      <XCircle className="w-4 h-4 text-rose-400" />
-                      <span>{t("取消分析")}</span>
-                    </button>
-                  </div>
-
-                  <p className="text-[11px] text-slate-500 max-w-md">
-                    {t("💡 提示：已自動略過 Windows Junction 循環與系統虛擬保護區，保障掃描順暢與安全。")}
-                  </p>
-                </div>
-              )}
-
-              {/* 掃描完成後呈現分析結果 */}
-              {!treeSizeLoading && treeSizeReport && (
-                <>
-                  {treeSizeReport.truncated_by_safety_limit && (
-                    <div className="flex items-center gap-2 p-3.5 rounded-xl bg-amber-950/40 border border-amber-600/40 text-amber-200 text-xs">
-                      <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-                      <span>{t("⚠️ 掃描已達項目安全上限，部分深層子目錄未完成統計。")}</span>
-                    </div>
-                  )}
-                  {/* 互動式 Treemap 矩形樹狀圖 */}
-                  <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 space-y-3">
-                    <div className="flex items-center justify-between flex-wrap gap-2">
-                      <div className="flex items-center gap-2.5">
-                        <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                          <Layers className="w-4 h-4 text-cyan-400" />
-                          {t("互動式 Treemap 空間佔比矩形圖（點擊子資料夾可下鑽分析）")}
-                        </h3>
-                        {treeSizeParentPath && (
-                          <button
-                            type="button"
-                            onClick={handleTreeSizeGoParent}
-                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700 hover:border-slate-600 transition-colors cursor-pointer"
-                            title={t("回上一層目錄")}
-                          >
-                            <ArrowUp className="w-3.5 h-3.5" />
-                            <span>{t("回上一層")}</span>
-                          </button>
-                        )}
-                      </div>
-                      {treeSizeReport.capabilities.is_network_drive && (
-                        <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                          {t("🌐 網路磁碟受控掃描 (最大深度 {depth} 層)", {
-                            depth: treeSizeReport.capabilities.max_scan_depth,
-                          })}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="flex flex-wrap gap-2 min-h-[180px] p-2 rounded-xl bg-slate-950 border border-slate-800">
-                      {treeSizeReport.children.slice(0, 12).map((node, i) => {
-                        const flexBasis = Math.max(
-                          12,
-                          Math.min(100, node.percentage)
-                        );
-                        const colorClass =
-                          TREEMAP_COLORS[i % TREEMAP_COLORS.length];
-                        return (
-                          <button
-                            key={node.path}
-                            onClick={() => {
-                              if (node.is_dir) {
-                                handleTreeSizeDrillDown(node.path);
-                              }
-                            }}
-                            style={{ flexGrow: Math.round(flexBasis), flexBasis: `${flexBasis}%` }}
-                            className={`p-3 rounded-xl border text-left transition-transform ${node.is_dir ? 'hover:scale-[1.01] cursor-pointer' : 'cursor-default opacity-95'} flex flex-col justify-between min-w-[140px] min-h-[84px] ${colorClass}`}
-                          >
-                            <div className="flex items-center justify-between gap-1">
-                              <span className="font-bold text-xs text-white truncate">
-                                {node.is_dir ? '📁 ' : '📄 '}
-                                {node.name}
-                              </span>
-                              <span className="text-[11px] font-mono bg-slate-950/50 px-1.5 py-0.5 rounded text-white">
-                                {node.percentage.toFixed(1)}%
-                              </span>
-                            </div>
-                            <div className="text-xs font-mono text-white/90 mt-2">
-                              {formatBytes(node.size_bytes)} ({t("{n} 檔", { n: node.file_count })})
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* 左右雙欄：檔案類型統計 + Top 巨型檔案 */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 space-y-3">
-                      <h3 className="text-sm font-semibold text-white">
-                        {t("依檔案類型空間分布")}
-                      </h3>
-                      <div className="space-y-2.5 text-xs">
-                        {treeSizeReport.category_breakdown.map((cat) => (
-                          <div key={cat.category} className="space-y-1">
-                            <div className="flex justify-between">
-                              <span className="text-slate-200 font-medium">
-                                {tx(cat.label)} ({t("{n} 檔", { n: cat.file_count })})
-                              </span>
-                              <span className="font-mono text-slate-300">
-                                {formatBytes(cat.size_bytes)} (
-                                {cat.percentage.toFixed(1)}%)
-                              </span>
-                            </div>
-                            <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-cyan-400 rounded-full"
-                                style={{
-                                  width: `${Math.max(2, cat.percentage)}%`,
-                                }}
-                              />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 space-y-3">
-                      <h3 className="text-sm font-semibold text-white">
-                        {t("Top 20 巨型檔案排行榜")}
-                      </h3>
-                      <div className="space-y-1.5 max-h-72 overflow-y-auto text-xs">
-                        {treeSizeReport.largest_files.map((f) => (
-                          <div
-                            key={f.path}
-                            className="flex items-center justify-between p-2 rounded-lg bg-slate-950/70 border border-slate-800/80"
-                          >
-                            <div className="truncate pr-3">
-                              <div className="font-medium text-slate-200 truncate">
-                                {f.name}
-                              </div>
-                              <div className="text-[11px] text-slate-500 truncate">
-                                {f.path}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                              {/\.vhdx?$/i.test(f.path) && (
-                                <button
-                                  type="button"
-                                  disabled={vhdxJob?.state === 'running'}
-                                  onClick={() => handleCompactVhdx(f.path, f.name)}
-                                  title={t("壓縮虛擬磁碟（需要系統管理員權限）")}
-                                  className="flex items-center gap-1 px-2 py-1 rounded-lg bg-cyan-500/15 border border-cyan-500/40 text-cyan-200 hover:bg-cyan-500/25 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                                >
-                                  <Minimize2 className="w-3.5 h-3.5" />
-                                  <span>
-                                    {vhdxJob?.state === 'running' && vhdxJob.path === f.path
-                                      ? t("壓縮中...")
-                                      : t("壓縮")}
-                                  </span>
-                                </button>
-                              )}
-                              <span className="font-mono text-cyan-300">
-                                {formatBytes(f.size_bytes)}
-                              </span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {/* 尚未掃描或切換目錄後的狀態提示 */}
-              {!treeSizeLoading && !treeSizeReport && (
-                <div className="p-12 text-center text-slate-400 text-xs bg-slate-900/40 rounded-2xl border border-slate-800/60 flex flex-col items-center justify-center space-y-3">
-                  <div className="w-12 h-12 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-center text-slate-500">
-                    <PieChart className="w-6 h-6" />
-                  </div>
-                  <div className="max-w-md space-y-1">
-                    <p className="text-slate-300 font-medium">
-                      {treeSizePath
-                        ? t("目錄已切換。點擊上方「立即掃描分析」按鈕以分析空間佔比與巨型檔案。")
-                        : t("請輸入或選擇目錄路徑，並點擊「立即掃描分析」以檢視空間佔比與巨型檔案")}
-                    </p>
-                    {treeSizePath && (
-                      <p className="text-[11px] font-mono text-slate-500 break-all">
-                        {treeSizePath}
-                      </p>
-                    )}
-                  </div>
-                  {treeSizePath && (
-                    <button
-                      type="button"
-                      onClick={() => runTreeSize(treeSizePath, true)}
-                      className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs flex items-center gap-1.5 cursor-pointer transition-colors shadow-md shadow-cyan-500/10"
-                    >
-                      <PieChart className="w-4 h-4" />
-                      <span>{t("立即掃描分析")}</span>
-                    </button>
-                  )}
-                </div>
-              )}
             </div>
           )}
 
