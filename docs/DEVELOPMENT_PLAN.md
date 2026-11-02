@@ -7,7 +7,7 @@
 ## 一、 技術架構選型 (方案 A：Tauri v2 + Rust Core Workspace)
 
 - **核心引擎層 (`crates/keeper-core`)**：100% Rust 實作，負責高速檔案系統走訪、圖片解碼與縮圖生成、Windows 磁碟與網路磁碟識別 (`GetDriveTypeW` / `WNetGetConnectionW`)、Windows Restart Manager 檔案佔用查詢、系統 Process 與 Port 監控、`BLAKE3` 差異比對與同步、以及系統維運清理。
-- **桌面橋接層 (`src-tauri` / 雙模伺服器)**：提供 Tauri IPC Commands 與本機開發 API 橋接，讓前端能以毫秒級延遲呼叫 Rust 核心功能。
+- **桌面視窗與橋接層 (`src-tauri` / Tao + Wry / 雙模伺服器)**：支援智慧視窗記憶（下次啟動自動還原座標，超出邊界則回歸主螢幕最大化），提供 Tauri IPC Commands 與本機開發 API 橋接，讓前端能以毫秒級延遲呼叫 Rust 核心功能。
 - **前端呈現層 (`ui/`)**：React 19 + TypeScript + Vite + TailwindCSS + Lucide Icons，支援圖片瀑布流/大圖檢視（含 EXIF/解析度資訊）、TreeSize 互動式矩形樹狀圖（Treemap）、即時資源監控圖表與 FreeFileSync 並排差異比較視圖。
 
 ---
@@ -41,7 +41,7 @@
    - 行程管理清單（PID、名稱、CPU%、記憶體、執行路徑），支援搜尋與一鍵終止行程（Kill Process）。
    - **Port 佔用監控**：列出本機所有開啟的 TCP/UDP 連接埠、狀態與對應的 PID/Process，支援開發者快速釋放被佔用的連接埠。
 3. **🍰 TreeSize 磁碟空間分析器 (Disk Space Analyzer — 檔案總管中間區塊檢視)**
-   - 整合於檔案總管中間區塊，提供清單模式與空間分析模式切換，支援右側面板折疊與巨型檔案點選即時預覽；不提供獨立 TreeSize 分頁。
+   - 整合於檔案總管中間區塊，於中間區塊上方提供「清單」與「空間分析」模式切換，支援右側面板折疊與巨型檔案點選即時預覽；不提供獨立 TreeSize 分頁。
    - 高速統計目錄結構大小、檔案數、子目錄數。
    - **互動式 Treemap（矩形樹狀圖）** 視覺化呈現各子目錄與檔案佔比。
    - 檔案類型分布統計（圖片、影片、程式碼、壓縮檔、文件、其他）與 Top 20 巨型檔案排行。

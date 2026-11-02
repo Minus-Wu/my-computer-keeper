@@ -40,7 +40,6 @@ import {
   Network,
   PanelRight,
   PieChart,
-  Power,
   RefreshCw,
   Search,
   ShieldAlert,
@@ -980,28 +979,7 @@ export function App() {
             ))}
           </select>
 
-          <button
-            disabled={vhdxJob?.state === 'running'}
-            onClick={() => {
-              if (window.confirm(t("確定要結束並關閉程式嗎？"))) {
-                try {
-                  if (navigator.sendBeacon) {
-                    navigator.sendBeacon('/api/shutdown');
-                  } else {
-                    fetch('/api/shutdown', { method: 'POST' }).catch(() => {});
-                  }
-                } catch {
-                  // ignore
-                }
-                window.close();
-              }
-            }}
-            title={t("關閉並結束程式")}
-            className="text-xs bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/60 text-rose-300 hover:text-rose-100 rounded-lg px-2.5 py-1.5 flex items-center gap-1.5 transition-colors cursor-pointer"
-          >
-            <Power className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">{t("結束程式")}</span>
-          </button>
+
         </div>
       </header>
 
@@ -1277,60 +1255,16 @@ export function App() {
                   </button>
                 </form>
 
-                {/* 搜尋與圖片篩選（清單模式專用） */}
-                {explorerViewMode === 'list' && (
-                  <div className="relative">
-                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" />
-                    <input
-                      type="text"
-                      value={searchFilter}
-                      onChange={(e) => setSearchFilter(e.target.value)}
-                      placeholder={t("過濾檔案名稱...")}
-                      className="bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 w-44"
-                    />
-                  </div>
-                )}
-
-                {/* 檢視模式切換器：清單檢視 vs TreeSize 空間分析 */}
-                <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setExplorerViewMode('list')}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-                      explorerViewMode === 'list'
-                        ? 'bg-cyan-500 text-slate-950 font-semibold shadow-sm shadow-cyan-500/20'
-                        : 'text-slate-400 hover:text-white hover:bg-slate-900'
-                    }`}
-                    title={t("清單檢視")}
-                  >
-                    <List className="w-3.5 h-3.5" />
-                    <span>{t("清單")}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setExplorerViewMode('treesize');
-                      const target = currentPath || treeSizePath;
-                      if (target && treeSizePath !== target) {
-                        setTreeSizePath(target);
-                        const key = normalizePathKey(target);
-                        if (treeSizeCacheRef.current.has(key)) {
-                          setTreeSizeReport(treeSizeCacheRef.current.get(key)!);
-                        } else {
-                          setTreeSizeReport(null);
-                        }
-                      }
-                    }}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-                      explorerViewMode === 'treesize'
-                        ? 'bg-cyan-500 text-slate-950 font-semibold shadow-sm shadow-cyan-500/20'
-                        : 'text-slate-400 hover:text-white hover:bg-slate-900'
-                    }`}
-                    title={t("TreeSize 空間分析")}
-                  >
-                    <PieChart className="w-3.5 h-3.5" />
-                    <span>{t("TreeSize 空間分析")}</span>
-                  </button>
+                {/* 搜尋與圖片篩選 */}
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" />
+                  <input
+                    type="text"
+                    value={searchFilter}
+                    onChange={(e) => setSearchFilter(e.target.value)}
+                    placeholder={t("過濾檔案名稱...")}
+                    className="bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 w-44"
+                  />
                 </div>
 
                 {/* 右側詳細資訊面板收合切換按鈕 */}
@@ -1348,25 +1282,78 @@ export function App() {
                 </button>
               </div>
 
-              {/* 檔案清單 / TreeSize 空間分析 + 右側圖片檢視面板 */}
+              {/* 檔案清單 / 空間分析 + 右側詳細資訊面板 */}
               <div className="flex-1 min-h-0 flex overflow-hidden">
-                {explorerViewMode === 'list' ? (
-                /* 檔案表格 */
-                <div className="flex-1 min-w-0 min-h-0 overflow-y-auto p-3">
-                  <div className="mb-2 flex items-center justify-between text-xs text-slate-400 px-2">
-                    <span>
-                      {t("共 {dirs} 個資料夾、{files} 個檔案（總計 {size}）", {
-                        dirs: listing?.total_dirs ?? 0,
-                        files: listing?.total_files ?? 0,
-                        size: formatBytes(listing?.total_size_bytes ?? 0),
-                      })}
-                    </span>
-                    {loading && (
-                      <span className="text-cyan-400 animate-pulse">
+                {/* 中間區塊容器 */}
+                <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
+                  {/* 中間區塊上方檢視切換與概況列 */}
+                  <div className="px-3.5 py-2 border-b border-slate-800 bg-slate-900/40 flex items-center justify-between gap-3 shrink-0">
+                    <div className="flex items-center gap-3 min-w-0">
+                      {/* 檢視模式切換器：清單 vs 空間分析 */}
+                      <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setExplorerViewMode('list')}
+                          className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                            explorerViewMode === 'list'
+                              ? 'bg-cyan-500 text-slate-950 font-semibold shadow-sm shadow-cyan-500/20'
+                              : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                          }`}
+                          title={t("清單檢視")}
+                        >
+                          <List className="w-3.5 h-3.5" />
+                          <span>{t("清單")}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setExplorerViewMode('treesize');
+                            const target = currentPath || treeSizePath;
+                            if (target && treeSizePath !== target) {
+                              setTreeSizePath(target);
+                              const key = normalizePathKey(target);
+                              if (treeSizeCacheRef.current.has(key)) {
+                                setTreeSizeReport(treeSizeCacheRef.current.get(key)!);
+                              } else {
+                                setTreeSizeReport(null);
+                              }
+                            }
+                          }}
+                          className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                            explorerViewMode === 'treesize'
+                              ? 'bg-cyan-500 text-slate-950 font-semibold shadow-sm shadow-cyan-500/20'
+                              : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                          }`}
+                          title={t("空間分析")}
+                        >
+                          <PieChart className="w-3.5 h-3.5" />
+                          <span>{t("空間分析")}</span>
+                        </button>
+                      </div>
+
+                      {explorerViewMode === 'list' && (
+                        <span className="text-xs text-slate-400 truncate">
+                          {t("共 {dirs} 個資料夾、{files} 個檔案（總計 {size}）", {
+                            dirs: listing?.total_dirs ?? 0,
+                            files: listing?.total_files ?? 0,
+                            size: formatBytes(listing?.total_size_bytes ?? 0),
+                          })}
+                        </span>
+                      )}
+                    </div>
+
+                    {explorerViewMode === 'list' && loading && (
+                      <span className="text-cyan-400 animate-pulse text-xs shrink-0">
                         {t("Rust 引擎讀取中...")}
                       </span>
                     )}
                   </div>
+
+                  {/* 中間主內容區域 */}
+                  <div className="flex-1 min-w-0 min-h-0 overflow-y-auto">
+                    {explorerViewMode === 'list' ? (
+                    /* 檔案表格 */
+                    <div className="p-3">
 
                   <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-900/40">
                     <table className="w-full text-left border-collapse text-xs table-fixed">
@@ -1465,7 +1452,7 @@ export function App() {
                   </div>
                 </div>
                 ) : (
-                <div className="flex-1 min-w-0 min-h-0 overflow-y-auto p-4 space-y-4">
+                <div className="p-4 space-y-4">
                   {/* 頂部操作與統計列 */}
                   <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/60 p-3.5 rounded-2xl border border-slate-800">
                     <div className="flex items-center gap-2">
@@ -1848,6 +1835,8 @@ export function App() {
                   )}
                 </div>
                 )}
+                  </div>
+                </div>
 
                 {/* 右側項目預覽與詳情檢視面板 */}
                 {showPreviewPane && (
@@ -2030,21 +2019,7 @@ export function App() {
                           <span>{t("開啟")}</span>
                         </button>
                       )}
-                      {previewTarget.isDir && (
-                        <button
-                          onClick={() => {
-                            loadDirectory(previewTarget.path);
-                            setExplorerViewMode('treesize');
-                            setTreeSizePath(previewTarget.path);
-                            runTreeSize(previewTarget.path, true);
-                          }}
-                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/30 text-xs font-medium transition-colors cursor-pointer"
-                          title={t("分析此目錄空間")}
-                        >
-                          <PieChart className="w-3.5 h-3.5" />
-                          <span>{t("分析空間佔用")}</span>
-                        </button>
-                      )}
+
                       <button
                         onClick={() => openLockModal(previewTarget.path)}
                         className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 text-xs font-medium transition-colors"

@@ -15,7 +15,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tiny_http::{Header, Method, Response, Server};
 
 use tao::{
-    dpi::LogicalSize,
+    dpi::{LogicalSize, PhysicalPosition, PhysicalSize},
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::WindowBuilder,
@@ -159,31 +159,156 @@ pub fn resolve_static_resource(url_path: &str, dist_dir: Option<&Path>) -> Optio
     None
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+struct WindowState {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    is_maximized: bool,
+}
+
+fn get_window_state_path() -> Option<PathBuf> {
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        let dir = Path::new(&appdata).join("my-computer-keeper");
+        let _ = fs::create_dir_all(&dir);
+        Some(dir.join("window-state.json"))
+    } else {
+        None
+    }
+}
+
+fn load_window_state() -> Option<WindowState> {
+    let path = get_window_state_path()?;
+    let content = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
+fn save_window_state(state: &WindowState) {
+    if let Some(path) = get_window_state_path() {
+        if let Ok(json) = serde_json::to_string_pretty(state) {
+            let _ = fs::write(path, json);
+        }
+    }
+}
+
+fn is_in_screen_bounds(
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    monitors: impl Iterator<Item = tao::monitor::MonitorHandle>,
+) -> bool {
+    let win_right = x.saturating_add(width as i32);
+    let win_bottom = y.saturating_add(height as i32);
+
+    for m in monitors {
+        let m_pos = m.position();
+        let m_size = m.size();
+        let m_left = m_pos.x;
+        let m_top = m_pos.y;
+        let m_right = m_left.saturating_add(m_size.width as i32);
+        let m_bottom = m_top.saturating_add(m_size.height as i32);
+
+        let inter_left = x.max(m_left);
+        let inter_top = y.max(m_top);
+        let inter_right = win_right.min(m_right);
+        let inter_bottom = win_bottom.min(m_bottom);
+
+        if inter_right > inter_left && inter_bottom > inter_top {
+            let inter_width = (inter_right - inter_left) as u32;
+            let inter_height = (inter_bottom - inter_top) as u32;
+            if inter_width >= 200 && inter_height >= 100 {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 fn run_desktop_window(app_url: &str) -> Result<(), Box<dyn std::error::Error>> {
     let event_loop = EventLoop::new();
-    let window = WindowBuilder::new()
+    let saved_state = load_window_state();
+
+    let in_bounds = if let Some(ref st) = saved_state {
+        is_in_screen_bounds(st.x, st.y, st.width, st.height, event_loop.available_monitors())
+    } else {
+        false
+    };
+
+    let mut builder = WindowBuilder::new()
         .with_title("My Computer Keeper — 全能電腦維運與檔案管家")
-        .with_inner_size(LogicalSize::new(1440.0, 920.0))
-        .with_min_inner_size(LogicalSize::new(1100.0, 720.0))
-        .build(&event_loop)?;
+        .with_min_inner_size(LogicalSize::new(1100.0, 720.0));
+
+    if let Some(st) = saved_state {
+        if in_bounds {
+            builder = builder
+                .with_position(PhysicalPosition::new(st.x, st.y))
+                .with_inner_size(PhysicalSize::new(st.width.max(1100), st.height.max(720)))
+                .with_maximized(st.is_maximized);
+        } else {
+            // 若不在既有螢幕範圍，則回歸主螢幕最大化呈現
+            builder = builder
+                .with_inner_size(LogicalSize::new(1440.0, 920.0))
+                .with_maximized(true);
+        }
+    } else {
+        builder = builder
+            .with_inner_size(LogicalSize::new(1440.0, 920.0));
+    }
+
+    let window = builder.build(&event_loop)?;
 
     let _webview = WebViewBuilder::new()
         .with_url(app_url)
         .with_devtools(cfg!(debug_assertions))
         .build(&window)?;
 
+    let mut last_normal_pos = window.outer_position().unwrap_or(PhysicalPosition::new(100, 100));
+    let mut last_normal_size = window.inner_size();
+
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
-        if let Event::WindowEvent {
-            event: WindowEvent::CloseRequested,
-            ..
-        } = event
-        {
-            if keeper_core::vhdx::compact_vhdx_status().state == keeper_core::vhdx::VhdxCompactState::Running {
-                window.set_title("VHDX workflow running — please wait before closing");
-            } else {
-                *control_flow = ControlFlow::Exit;
+        match event {
+            Event::WindowEvent { event: WindowEvent::Moved(pos), .. } => {
+                if !window.is_maximized() {
+                    last_normal_pos = pos;
+                }
             }
+            Event::WindowEvent { event: WindowEvent::Resized(size), .. } => {
+                if !window.is_maximized() && size.width > 0 && size.height > 0 {
+                    last_normal_size = size;
+                }
+            }
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                ..
+            } => {
+                if keeper_core::vhdx::compact_vhdx_status().state == keeper_core::vhdx::VhdxCompactState::Running {
+                    window.set_title("VHDX workflow running — please wait before closing");
+                } else {
+                    let is_max = window.is_maximized();
+                    let (pos, size) = if is_max {
+                        (last_normal_pos, last_normal_size)
+                    } else {
+                        (
+                            window.outer_position().unwrap_or(last_normal_pos),
+                            window.inner_size(),
+                        )
+                    };
+
+                    save_window_state(&WindowState {
+                        x: pos.x,
+                        y: pos.y,
+                        width: size.width.max(1100),
+                        height: size.height.max(720),
+                        is_maximized: is_max,
+                    });
+
+                    *control_flow = ControlFlow::Exit;
+                }
+            }
+            _ => {}
         }
     });
 }
@@ -436,6 +561,20 @@ mod tests {
     use super::commands::dispatch_command;
     use super::resolve_static_resource;
     use serde_json::json;
+
+    #[test]
+    fn test_window_state_serialization() {
+        let state = super::WindowState {
+            x: 120,
+            y: 80,
+            width: 1440,
+            height: 920,
+            is_maximized: false,
+        };
+        let json = serde_json::to_string(&state).expect("serialize window state");
+        let decoded: super::WindowState = serde_json::from_str(&json).expect("deserialize window state");
+        assert_eq!(state, decoded);
+    }
 
     #[test]
     fn test_embedded_ui_resolution() {
