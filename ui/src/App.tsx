@@ -303,7 +303,7 @@ export function App() {
   };
 
   // 載入磁碟機清單與初始目錄
-  const loadDirectory = useCallback(async (targetPath?: string) => {
+  const loadDirectory = useCallback(async (targetPath?: string): Promise<string | undefined> => {
     setLoading(true);
     setErrorBanner(null);
     try {
@@ -323,29 +323,14 @@ export function App() {
           setImagePreview(null);
         })
         .catch(() => setGeneralPreview(null));
+      return data.current_path;
     } catch (err) {
       notifyError(err);
+      return undefined;
     } finally {
       setLoading(false);
     }
   }, []);
-
-  useEffect(() => {
-    keeperApi
-      .getDrives()
-      .then(setDrives)
-      .catch(() => {});
-    keeperApi
-      .getCompactVhdxStatus()
-      .then((job) => {
-        setVhdxJob(job);
-        if (job.state === 'running' || job.recovery_required) {
-          setVhdxTarget({ path: job.path, name: job.path.split(/[\\/]/).pop() ?? job.path });
-        }
-      })
-      .catch(notifyError);
-    loadDirectory();
-  }, [loadDirectory]);
 
   // 當選擇檔案或資料夾時，自動載入全方位預覽（資料夾說明、圖片、純文字、PDF、ZIP、影音、Hex 等）
   const handleSelectEntry = async (entry: FileEntry, forceNetwork = false) => {
@@ -407,7 +392,6 @@ export function App() {
       setTreeSizeScanRate(0);
       lastProgressSampleRef.current = { time: Date.now(), files: 0 };
       setTreeSizeLoading(true);
-      setLoading(true);
       setErrorBanner(null);
       try {
         const { scan_id } = await keeperApi.startTreeSizeScan(target);
@@ -440,19 +424,16 @@ export function App() {
               setTreeSizeReport(report);
               setTreeSizePath(report.root_path);
               setTreeSizeLoading(false);
-              setLoading(false);
             } else if (state.status === 'cancelled') {
               clearInterval(pollTimer);
               treeSizePollTimerRef.current = null;
               activeTreeSizeScanIdRef.current = null;
               setTreeSizeLoading(false);
-              setLoading(false);
             } else if (state.status === 'failed') {
               clearInterval(pollTimer);
               treeSizePollTimerRef.current = null;
               activeTreeSizeScanIdRef.current = null;
               setTreeSizeLoading(false);
-              setLoading(false);
               notifyError(state.error ?? t("空間分析失敗"));
             }
           } catch {
@@ -462,12 +443,34 @@ export function App() {
         treeSizePollTimerRef.current = pollTimer;
       } catch (err) {
         setTreeSizeLoading(false);
-        setLoading(false);
         notifyError(err);
       }
     },
     [treeSizePath, currentPath, stopTreeSizePolling]
   );
+
+  useEffect(() => {
+    keeperApi
+      .getDrives()
+      .then(setDrives)
+      .catch(() => {});
+    keeperApi
+      .getCompactVhdxStatus()
+      .then((job) => {
+        setVhdxJob(job);
+        if (job.state === 'running' || job.recovery_required) {
+          setVhdxTarget({ path: job.path, name: job.path.split(/[\\/]/).pop() ?? job.path });
+        }
+      })
+      .catch(notifyError);
+
+    // 啟動後在背景自動啟動空間分析
+    loadDirectory().then((initPath) => {
+      if (initPath) {
+        runTreeSize(initPath, false);
+      }
+    });
+  }, [loadDirectory, runTreeSize]);
 
   // 切換上一層目錄：若有快取則瞬間載入，未掃描則切換路徑提示手動分析（不自動觸發重掃）
   const handleTreeSizeGoParent = useCallback(() => {
@@ -851,6 +854,7 @@ export function App() {
             setTreeSizeReport(treeSizeCacheRef.current.get(key)!);
           } else {
             setTreeSizeReport(null);
+            runTreeSize(path, false);
           }
         }
         break;
@@ -1235,6 +1239,7 @@ export function App() {
                         setTreeSizeReport(treeSizeCacheRef.current.get(key)!);
                       } else {
                         setTreeSizeReport(null);
+                        runTreeSize(pathInput, false);
                       }
                     }
                   }}
@@ -1309,13 +1314,15 @@ export function App() {
                           onClick={() => {
                             setExplorerViewMode('treesize');
                             const target = currentPath || treeSizePath;
-                            if (target && treeSizePath !== target) {
-                              setTreeSizePath(target);
+                            if (target) {
+                              if (treeSizePath !== target) {
+                                setTreeSizePath(target);
+                              }
                               const key = normalizePathKey(target);
                               if (treeSizeCacheRef.current.has(key)) {
                                 setTreeSizeReport(treeSizeCacheRef.current.get(key)!);
-                              } else {
-                                setTreeSizeReport(null);
+                              } else if (!treeSizeLoading) {
+                                runTreeSize(target, false);
                               }
                             }
                           }}
@@ -1326,8 +1333,15 @@ export function App() {
                           }`}
                           title={t("空間分析")}
                         >
-                          <PieChart className="w-3.5 h-3.5" />
+                          {treeSizeLoading ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+                          ) : (
+                            <PieChart className="w-3.5 h-3.5" />
+                          )}
                           <span>{t("空間分析")}</span>
+                          {treeSizeLoading && !treeSizeReport && (
+                            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping ml-0.5" />
+                          )}
                         </button>
                       </div>
 
